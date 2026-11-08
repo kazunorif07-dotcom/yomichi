@@ -29,7 +29,8 @@ const FIELD_COLORS = {
 };
 const STATUSES = [
   { id: 'reading', label: '読書中' },
-  { id: 'want', label: '読みたい' },
+  { id: 'want', label: '積読' },   // 持っているけど、まだ読んでいない本
+  { id: 'wish', label: '欲しい' },  // まだ持っていない、読みたい本
   { id: 'done', label: '読了' },
   { id: 'paused', label: '中断' },
 ];
@@ -39,7 +40,7 @@ const POSITIONS = [
   { id: 'branch', label: '枝', desc: '応用' },
   { id: 'leaf', label: '葉', desc: '専門・細部' },
 ];
-const STATUS_ORDER = { reading: 0, want: 1, paused: 2, done: 3 };
+const STATUS_ORDER = { reading: 0, want: 1, wish: 2, paused: 3, done: 4 };
 
 // 知の地図の「大陸」。18分野を4つのまとまりに分ける
 const CONTINENTS = [
@@ -236,6 +237,7 @@ function fieldStats() {
     return {
       field, books, done: done.length,
       reading: books.filter((b) => b.status === 'reading').length,
+      tsundoku: books.filter((b) => b.status === 'want').length,
       trunkDone: done.some((b) => b.position === 'trunk'),
     };
   });
@@ -259,6 +261,15 @@ const ICONS = {
   stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/></svg>',
 };
 
+// 「本題 : 副題 上」を、本題（＋巻）と副題に分ける
+function splitTitle(t = '') {
+  const m = String(t).match(/^(.*?)\s*[:：]\s*(.*?)(\s+(?:上|中|下|[0-9０-９]+))?$/);
+  if (!m) return [t, ''];
+  return [m[1] + (m[3] || ''), m[2]];
+}
+const mainTitle = (t) => splitTitle(t)[0];
+const subTitle = (t) => splitTitle(t)[1];
+
 // 分野の色と「幹・枝・葉」の模様で、本ごとの表紙を自動でつくる。
 // 写真やネットの表紙があればそれを重ねて表示。画像が読めなければ自動の表紙に戻る。
 function coverHtml(b, size = '') {
@@ -266,8 +277,8 @@ function coverHtml(b, size = '') {
   const img = b.coverData || b.coverUrl;
   return `<div class="cover ${size ? `cover-${size}` : ''} pat-${b.position || 'trunk'} ${img ? 'cover-img' : ''}" style="--cover:${FIELD_COLORS[b.field] || '#4A4F5C'}" aria-hidden="true">
       ${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}
-      <span class="cover-title">${esc(b.title)}</span>
-      <span class="cover-author">${esc(b.author || '')}</span>
+      <span class="cover-title">${esc(mainTitle(b.title))}${subTitle(b.title) ? `<small>${esc(subTitle(b.title))}</small>` : ''}</span>
+      <span class="cover-author">${esc((b.author || '').split('、')[0])}</span>
       ${pos ? `<span class="cover-pos">${pos.label}</span>` : ''}
     </div>`;
 }
@@ -414,6 +425,7 @@ function renderHome() {
     </div>
 
     ${dailyNoteHtml()}
+    ${towerTeaserHtml()}
 
     <section class="section">
       <div class="section-head"><h2 class="section-title">読書中</h2>
@@ -464,9 +476,9 @@ function renderBooks() {
     .map((f) => `<button class="filter" data-action="filter" data-status="${f.id}" aria-pressed="${bookFilter === f.id}">${f.label} <span class="num">${f.id === 'all' ? data.books.length : count(f.id)}</span></button>`)
     .join('');
 
-  const tabs = segHtml('shelf-mode', [{ id: 'books', label: `本 ${data.books.length}` }, { id: 'notes', label: `メモ ${data.notes.length}` }], shelfMode);
-  if (shelfMode === 'notes') {
-    el.innerHTML = `<div class="section-head"><h2 class="section-title">本棚</h2></div>${tabs}${notesListHtml()}`;
+  const tabs = segHtml('shelf-mode', [{ id: 'books', label: `本 ${data.books.length}` }, { id: 'tower', label: 'タワー' }, { id: 'notes', label: `メモ ${data.notes.length}` }], shelfMode);
+  if (shelfMode !== 'books') {
+    el.innerHTML = `<div class="section-head"><h2 class="section-title">本棚</h2></div>${tabs}${shelfMode === 'notes' ? notesListHtml() : towerHtml()}`;
     return;
   }
   el.innerHTML = `
@@ -515,19 +527,22 @@ function renderMap() {
   const byField = Object.fromEntries(stats.map((s) => [s.field, s]));
   const explored = stats.filter((s) => s.done > 0);
   const trunks = stats.filter((s) => s.trunkDone).length;
-  const blanks = stats.filter((s) => s.done === 0 && s.reading === 0);
+  const blanks = stats.filter((s) => s.done === 0 && s.reading === 0 && s.tsundoku === 0);
 
+  const planned = stats.filter((s) => s.done === 0 && (s.tsundoku > 0 || s.reading > 0));
   const tile = (s) => {
     const level = s.done >= 4 ? 3 : s.done >= 2 ? 2 : s.done >= 1 ? 1 : 0;
+    const plan = !level && (s.tsundoku || s.reading);
     return `
-      <button class="land ${level ? 'land-on' : ''}" style="--cover:${FIELD_COLORS[s.field]}" data-action="open-field" data-field="${esc(s.field)}"
+      <button class="land ${level ? 'land-on' : ''} ${plan ? 'land-plan' : ''}" style="--cover:${FIELD_COLORS[s.field]}" data-action="open-field" data-field="${esc(s.field)}"
         aria-label="${esc(s.field)}：読了${s.done}冊、幹${s.trunkDone ? 'あり' : 'まだ'}">
         <span class="land-name">${esc(s.field)}</span>
         <span class="land-count"><span class="big">${s.done}</span>冊</span>
         <span class="land-foot">
           <span class="trunk-mark ${s.trunkDone ? 'on' : ''}">幹${s.trunkDone ? '✓' : ''}</span>
           ${s.reading ? `<span class="land-reading">読書中${s.reading}</span>` : ''}
-          ${level ? `<span class="land-level" aria-hidden="true">${'●'.repeat(level)}${'○'.repeat(3 - level)}</span>` : '<span class="land-blank">未開拓</span>'}
+          ${s.tsundoku ? `<span class="land-stack">積読${s.tsundoku}</span>` : ''}
+          ${level ? `<span class="land-level" aria-hidden="true">${'●'.repeat(level)}${'○'.repeat(3 - level)}</span>` : plan ? '<span class="land-blank">予定地</span>' : '<span class="land-blank">未開拓</span>'}
         </span>
       </button>`;
   };
@@ -536,12 +551,13 @@ function renderMap() {
     <div class="map-summary">
       <span class="tile-label">あなたの知の地図</span>
       <div class="map-big"><span class="big">${explored.length}</span><small>／18分野を開拓</small></div>
-      <div class="coverage" aria-hidden="true">${stats.map((s) => `<i style="--cover:${FIELD_COLORS[s.field]}" class="${s.done ? 'on' : ''} ${s.trunkDone ? 'trunk' : ''}"></i>`).join('')}</div>
+      <div class="coverage" aria-hidden="true">${stats.map((s) => `<i style="--cover:${FIELD_COLORS[s.field]}" class="${s.done ? 'on' : (s.tsundoku || s.reading) ? 'plan' : ''} ${s.trunkDone ? 'trunk' : ''}"></i>`).join('')}</div>
       <p class="map-note">幹（入門・古典）を読んだ分野は <strong>${trunks}</strong>。
+      ${planned.length ? `積読・読書中で開拓予定の分野は <strong>${planned.length}</strong>。` : ''}
       ${blanks.length ? `まだ空白：${blanks.slice(0, 3).map((b) => esc(b.field)).join('、')}${blanks.length > 3 ? ` ほか${blanks.length - 3}分野` : ''}` : '全分野に足跡があります！'}</p>
     </div>
     <div class="legend-row" aria-label="見かた">
-      <span><i class="lg lg-on"></i>読了あり</span><span><i class="lg lg-off"></i>未開拓</span>
+      <span><i class="lg lg-on"></i>読了あり</span><span><i class="lg lg-plan"></i>予定地（積読・読書中だけ）</span><span><i class="lg lg-off"></i>未開拓</span>
       <span><span class="trunk-mark on">幹✓</span>入門・古典を読了</span><span>●○○ 1冊／●●○ 2〜3冊／●●● 4冊〜</span>
     </div>
     ${CONTINENTS.map((c) => `
@@ -554,7 +570,11 @@ function renderMap() {
 function openFieldSheet(field) {
   const s = fieldStats().find((x) => x.field === field);
   const books = [...s.books].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
-  const advice = s.done === 0 ? 'まだ空白の分野です。まずは「幹」になる入門書や古典から1冊どうでしょう。'
+  const stack = s.books.filter((b) => b.status === 'want');
+  const stackTrunk = stack.find((b) => b.position === 'trunk');
+  const advice = s.done === 0 && stackTrunk ? `積読の「${stackTrunk.title}」が幹の本です。ここから開拓を始めよう。`
+    : s.done === 0 && stack.length ? `積読が${stack.length}冊ある予定地です。まずは1冊、読み始めてみよう。`
+    : s.done === 0 ? 'まだ空白の分野です。まずは「幹」になる入門書や古典から1冊どうでしょう。'
     : !s.trunkDone ? '読了はありますが、「幹」の本がまだです。土台になる1冊を足すと理解がつながります。'
     : '幹ができています。次は「枝」（応用）や「葉」（専門）で広げてみよう。';
   openSheet(field, `
@@ -769,6 +789,8 @@ function openBookForm(id, presetField = '') {
         <div class="field"><label for="bf-pages">総ページ数</label>
           <input class="input" id="bf-pages" type="number" inputmode="numeric" min="1" value="${b.totalPages || ''}"></div>
       </div>
+      <div class="field"><label for="bf-price">値段（円・任意）</label>
+        <input class="input" id="bf-price" type="number" inputmode="numeric" min="0" value="${b.price || ''}" placeholder="積読タワーの総額に使います"></div>
       <div class="field"><span class="field-label">状態</span>${segHtml('bf-status', STATUSES, b.status)}</div>
       <div class="field" id="bf-finished-wrap" ${b.status === 'done' ? '' : 'hidden'}>
         <label for="bf-finished">読了日</label>
@@ -797,6 +819,7 @@ function submitBookForm(form) {
     title, author: v('#bf-author'), field, totalPages: pages, status,
     position: checked('bf-pos'), lang: checked('bf-lang'),
     finishedAt: status === 'done' ? (v('#bf-finished') || todayStr()) : null,
+    price: parseInt(v('#bf-price'), 10) || null,
     coverUrl: formCover.coverUrl || '', coverData: formCover.coverData || '', isbn: formCover.isbn || '',
   };
   const id = form.dataset.id;
@@ -849,8 +872,10 @@ async function searchBooks() {
   if (!results.length) {
     // 日本の本（日本語の言葉や、978-4で始まるISBN）は国会図書館を優先
     const japaneseBook = isJapanese || /^(9784|4)/.test(isbn);
-    const tasks = japaneseBook ? [searchNdl(q, isbn), searchOpenLibrary(q, isbn)] : [searchOpenLibrary(q, isbn), searchNdl(q, isbn)];
-    if (isJapanese) tasks.pop(); // 日本語の言葉で Open Library を探しても、ほぼ見つからない
+    // 日本語の言葉で Open Library を探しても、ほぼ見つからないので国会図書館だけ
+    const tasks = isJapanese ? [searchNdl(q, isbn)]
+      : japaneseBook ? [searchNdl(q, isbn), searchOpenLibrary(q, isbn)]
+      : [searchOpenLibrary(q, isbn), searchNdl(q, isbn)];
     const settled = await Promise.allSettled(tasks);
     results = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
     source = isJapanese ? '国立国会図書館サーチ' : '国立国会図書館サーチ・Open Library';
@@ -940,6 +965,7 @@ async function fetchNdl(url) {
       lang: /[぀-ヿ㐀-鿿]/.test(title) ? 'ja' : 'en',
       field: fieldFromNdc(ndc) || guessField(`${all('dc:subject').map((el) => el.textContent).join(' ')} ${title}`),
       coverUrl: ndlThumb(isbn), isbn,
+      price: parseInt(text('dcndl:price').replace(/[^0-9]/g, ''), 10) || '',
     };
   }).filter((r) => r.title);
 }
@@ -1012,6 +1038,7 @@ function pickResult(i) {
   $('#bf-title').value = r.title;
   $('#bf-author').value = r.author;
   if (r.pages) $('#bf-pages').value = r.pages;
+  if (r.price) $('#bf-price').value = r.price;
   if (r.field) $('#bf-field').value = r.field;
   const lang = $(`#bf-lang-${r.lang}`);
   if (lang) lang.checked = true;
@@ -1198,7 +1225,7 @@ function addSession({ book, date, minutes, startPage, endPage, source }) {
     book.finishedAt = date;
     msg = `読了おめでとう！「${book.title}」を読み終えました`;
     party = true;
-  } else if (book.status === 'want' || book.status === 'paused') {
+  } else if (book.status === 'want' || book.status === 'wish' || book.status === 'paused') {
     book.status = 'reading';
   }
   const after = { streak: streakInfo().current, todayMin: minutesOn(todayStr()) };
@@ -1505,7 +1532,7 @@ function buildMarkdown() {
     L.push('');
   }
   const others = (st) => data.books.filter((b) => b.status === st);
-  for (const [st, title] of [['reading', '読書中の本'], ['want', '読みたい本'], ['paused', '中断した本']]) {
+  for (const [st, title] of [['reading', '読書中の本'], ['want', '積読（持っていてまだ読んでいない本）'], ['wish', '欲しい本（まだ持っていない本）'], ['paused', '中断した本']]) {
     if (!others(st).length) continue;
     L.push(`## ${title}`, '');
     for (const b of others(st)) L.push(`- ${b.title}（${b.author || '著者不明'}／${b.field}／${posLabel(b.position)}${st === 'reading' ? `／${progressOf(b)}%` : ''}）`);
@@ -1552,6 +1579,92 @@ async function exportMarkdown(asFile) {
     box.select();
     toast('自動でコピーできませんでした。表示した文字を全部選んでコピーしてください');
   }
+}
+
+/* ---------- 積読タワー ---------- */
+// 本の厚みはページ数から推定する（1ページ約0.06mm＋表紙2mm）。重さも同じく推定。
+const thicknessMm = (b) => Math.max(5, (b.totalPages || 0) * 0.06 + 2);
+const weightG = (b) => (b.totalPages || 0) * 1.1 + 60;
+// 高さくらべの目印（mm）
+const LANDMARKS = [
+  [150, 'スマホの縦の長さ'], [300, '30cmものさし'], [700, '学校の机'], [1000, '1メートル'],
+  [1700, '大人の身長'], [3050, 'バスケットのゴール'], [6000, '2階建ての家'], [12000, '電柱'],
+  [100000, '30階建てのビル'], [333000, '東京タワー'], [634000, '東京スカイツリー'],
+];
+let towerKind = 'want'; // 'want'（積読）か 'done'（読了）
+
+function fmtLength(mm) {
+  if (mm < 1000) return `${(mm / 10).toFixed(mm < 100 ? 1 : 0)}cm`;
+  return `${(mm / 1000).toFixed(mm < 10000 ? 2 : 1)}m`;
+}
+
+function towerStats(kind) {
+  const books = data.books.filter((b) => b.status === kind).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const height = books.reduce((a, b) => a + thicknessMm(b), 0);
+  const priced = books.filter((b) => b.price > 0);
+  const pages = books.reduce((a, b) => a + (b.totalPages || 0), 0);
+  const passed = [...LANDMARKS].reverse().find(([h]) => h <= height);
+  const next = LANDMARKS.find(([h]) => h > height);
+  return {
+    books, height, pages, priced,
+    price: priced.reduce((a, b) => a + b.price, 0),
+    weight: books.reduce((a, b) => a + weightG(b), 0),
+    passed, next,
+  };
+}
+
+function towerHtml() {
+  const t = towerStats(towerKind);
+  const kindSeg = segHtml('tower-kind', [{ id: 'want', label: '積読タワー' }, { id: 'done', label: '読了タワー' }], towerKind);
+  if (!t.books.length) {
+    return `${kindSeg}<p class="empty-small">${towerKind === 'want' ? '状態を「積読」にした本が、ここに積み上がります。' : '読了した本が、ここに積み上がります。'}</p>`;
+  }
+  // 読む速さ（これまでの平均）から、全部読むのにかかる時間を出す
+  const totalMin = data.sessions.reduce((a, s) => a + s.minutes, 0);
+  const speed = speedOf(data.sessions.reduce((a, s) => a + sessionPages(s), 0), totalMin) || 40;
+  const hours = t.pages / speed;
+  const days = Math.ceil((hours * 60) / data.settings.dailyGoal);
+  const scale = Math.min(2.2, 460 / t.height); // 1mmを何pxで描くか
+  const seed = (id) => [...id].reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5);
+  const spines = t.books.map((b) => {
+    const h = Math.max(4, thicknessMm(b) * scale);
+    const r = seed(b.id);
+    return `<button class="spine ${h < 15 ? 'thin' : ''}" data-action="open-book" data-id="${b.id}"
+        style="height:${h}px;width:${64 + (r % 28)}%;margin-left:${(r >> 5) % 12}%;--cover:${FIELD_COLORS[b.field] || '#4A4F5C'}"
+        title="${esc(b.title)}"><span>${esc(mainTitle(b.title))}</span>${b.position === 'trunk' ? '<i>幹</i>' : ''}</button>`;
+  }).join('');
+
+  return `
+    ${kindSeg}
+    <div class="tower-card">
+      <div class="tower-head">
+        <span class="tile-label">${towerKind === 'want' ? '積んだ本は、これから開拓する知の地図' : 'ここまで読んできた本の高さ'}</span>
+        <div class="tower-big"><span class="big">${fmtLength(t.height)}</span><small>${t.books.length}冊</small></div>
+        <p class="tower-compare">${t.passed ? `「${t.passed[1]}」を超えました。` : ''}${t.next ? `次は「${t.next[1]}」まで、あと${fmtLength(t.next[0] - t.height)}。` : '最高到達点です！'}</p>
+      </div>
+      <div class="tower" aria-label="本を積み上げた図">
+        ${t.next ? `<div class="tower-goal" style="bottom:${Math.min(t.next[0] * scale, t.height * scale + 22) + 6}px"><span>${t.next[1]}</span></div>` : ''}
+        <div class="tower-stack">${spines}</div>
+        <div class="tower-floor"></div>
+      </div>
+    </div>
+    <div class="kpis">
+      <div><small>総額</small><span class="big">${t.price ? (t.price >= 10000 ? `${(t.price / 10000).toFixed(1)}<small>万円</small>` : `${t.price.toLocaleString()}<small>円</small>`) : '—'}</span>${t.priced.length < t.books.length ? `<small>値段未入力${t.books.length - t.priced.length}冊</small>` : ''}</div>
+      <div><small>総ページ</small><span class="big">${t.pages.toLocaleString()}<small>p</small></span></div>
+      <div><small>重さ（推定）</small><span class="big">${(t.weight / 1000).toFixed(1)}<small>kg</small></span></div>
+    </div>
+    ${towerKind === 'want' ? `<p class="forecast">あなたの速さ（時速${speed}ページ）なら、全部読むのに約<strong>${Math.round(hours)}時間</strong>。1日${data.settings.dailyGoal}分ずつなら<strong>${days}日</strong>で読み切れます。</p>` : ''}`;
+}
+
+function towerTeaserHtml() {
+  const t = towerStats('want');
+  if (!t.books.length) return '';
+  return `
+    <button class="tower-teaser" data-action="open-tower">
+      <span class="teaser-spines" aria-hidden="true">${t.books.slice(-5).map((b) => `<i style="--cover:${FIELD_COLORS[b.field] || '#4A4F5C'}"></i>`).join('')}</span>
+      <span class="teaser-text"><span class="tile-label">積読タワー</span><strong><span class="big">${fmtLength(t.height)}</span>・${t.books.length}冊</strong></span>
+      <span class="teaser-go">見る</span>
+    </button>`;
 }
 
 /* ---------- 7. 読書タイマー ---------- */
@@ -1792,7 +1905,13 @@ function loadSample() {
   const b7 = mk('ソフィーの世界', 'ヨースタイン・ゴルデル', '哲学・倫理', 680, 'done', 'trunk', 'ja', ago(100));
   const b8 = mk('銃・病原菌・鉄 上', 'ジャレド・ダイアモンド', '歴史', 416, 'done', 'branch', 'ja', ago(140));
   const b9 = mk('イシューからはじめよ', '安宅和人', '経営・起業', 240, 'done', 'leaf', 'ja', ago(75));
-  data.books.push(b1, b2, b3, b4, b5, b6, b7, b8, b9);
+  const b10 = mk('宇宙は何でできているのか', '村山斉', '物理学・宇宙', 270, 'want', 'trunk');
+  const b11 = mk('利己的な遺伝子 40周年記念版', 'リチャード・ドーキンス', '生物・進化', 584, 'wish', 'trunk');
+  const b12 = mk('ホモ・デウス 上', 'ユヴァル・ノア・ハラリ', '歴史', 304, 'want', 'branch');
+  const b13 = mk('宗教の起源', 'ロビン・ダンバー', '宗教', 352, 'want', 'trunk');
+  Object.assign(b4, { price: 4800 }); Object.assign(b5, { price: 6380 }); Object.assign(b10, { price: 836 });
+  Object.assign(b11, { price: 2970 }); Object.assign(b12, { price: 2090 }); Object.assign(b13, { price: 2970 });
+  data.books.push(b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13);
   const ses = (book, n, minutes, s, e) => ({
     id: newId(), bookId: book.id, date: ago(n), minutes, startPage: s, endPage: e,
     source: 'manual', sample: true, createdAt: new Date(Date.now() - n * 86400000).toISOString(),
@@ -1873,6 +1992,7 @@ document.addEventListener('click', (e) => {
     case 'add-note': openNoteForm(id); break;
     case 'edit-note': openNoteForm(null, id); break;
     case 'review': openReviewForm(id); break;
+    case 'open-tower': shelfMode = 'tower'; towerKind = 'want'; go('books'); break;
     case 'next-daily': reviewOffset++; renderHome(); break;
     case 'delete-note':
       armOrRun(el, () => {
@@ -1974,6 +2094,7 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'bf-photo') loadPhoto(e.target.files[0]);
   if (e.target.id === 'bf-field' || e.target.name === 'bf-pos') refreshCoverPreview();
   if (e.target.name === 'shelf-mode') { shelfMode = e.target.value; renderBooks(); }
+  if (e.target.name === 'tower-kind') { towerKind = e.target.value; renderBooks(); }
   if (e.target.name === 'stats-range') { statsRange = e.target.value; chartSel.time = null; renderStats(); }
 });
 

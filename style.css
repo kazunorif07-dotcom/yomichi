@@ -438,7 +438,7 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 /* ---------- グラフ ---------- */
 .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .kpis > div { background: var(--surface); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.kpis .big { font-size: 22px; }
+.kpis .big { font-size: clamp(16px, 5.2vw, 22px); overflow-wrap: anywhere; }
 .kpis small { font-size: 11px; font-weight: 900; color: var(--muted); }
 .kpis .big small { font-family: var(--font-body); color: var(--muted); }
 .card { background: var(--surface); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
@@ -504,6 +504,50 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .link-book { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 0; border-radius: 14px; padding: 8px 10px; text-align: left; cursor: pointer; min-width: 0; }
 .link-book span { display: flex; flex-direction: column; font-weight: 700; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
 .link-book small { font-size: 11px; color: var(--muted); }
+
+/* ---------- 表紙の副題 ---------- */
+.cover-title small { display: block; font-size: 8.5cqw; font-weight: 700; opacity: .85; margin-top: 4cqw; line-height: 1.35; }
+
+/* ---------- 地図の予定地 ---------- */
+.land-plan { border: 2px dashed var(--cover); color: var(--ink); background: repeating-linear-gradient(-45deg, transparent 0 8px, rgb(127 127 127 / .07) 8px 16px); }
+.land-plan .land-name { color: var(--cover); filter: saturate(1.2); }
+.land-stack { padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--ink); font-weight: 900; }
+.land-on .land-stack { background: rgb(255 255 255 / .22); color: inherit; }
+.lg-plan { border: 2px dashed var(--blue); background: repeating-linear-gradient(-45deg, transparent 0 3px, var(--surface-2) 3px 6px); }
+.coverage i.plan { background: repeating-linear-gradient(-45deg, var(--cover) 0 3px, transparent 3px 6px); opacity: .9; }
+
+/* ---------- 積読タワー ---------- */
+.tower-card { background: var(--surface); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.tower-big { display: flex; align-items: baseline; gap: 10px; }
+.tower-big .big { font-size: 48px; }
+.tower-big small { font-size: 15px; font-weight: 900; color: var(--muted); }
+.tower-compare { font-size: 14px; font-weight: 700; }
+.tower { position: relative; display: flex; flex-direction: column; justify-content: flex-end; min-height: 120px; padding-top: 48px; }
+.tower-stack { display: flex; flex-direction: column-reverse; width: min(100%, 280px); margin: 0 auto; }
+.spine {
+  display: flex; align-items: center; gap: 6px; border: 0; padding: 0 10px; cursor: pointer; overflow: hidden;
+  background: var(--cover); color: var(--cover-ink); border-radius: 3px; text-align: left;
+  box-shadow: inset 0 -2px 0 rgb(0 0 0 / .18), inset 0 1px 0 rgb(255 255 255 / .18);
+  font-size: 11px; font-weight: 900; line-height: 1;
+}
+.spine span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.spine i { font-style: normal; font-size: 10px; background: var(--butter); color: var(--butter-ink); border-radius: 99px; padding: 1px 5px; }
+.spine.thin span, .spine.thin i { display: none; }
+.tower-floor { height: 6px; border-radius: 3px; background: var(--ink); width: min(100%, 320px); margin: 0 auto; }
+.tower-goal { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--coral); margin-bottom: 6px; }
+.tower-goal span { position: absolute; right: 0; top: -20px; font-size: 11px; font-weight: 900; color: var(--coral); background: var(--surface); padding: 0 4px; }
+.tower-teaser {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; width: 100%;
+  background: var(--surface); border: 0; border-radius: var(--radius); padding: 14px 16px; cursor: pointer; text-align: left;
+}
+.teaser-spines { display: flex; flex-direction: column-reverse; gap: 2px; width: 44px; }
+.teaser-spines i { height: 7px; border-radius: 2px; background: var(--cover); }
+.teaser-spines i:nth-child(2n) { width: 85%; margin-left: 10%; }
+.teaser-text { display: flex; flex-direction: column; min-width: 0; }
+.teaser-text .tile-label { color: var(--muted); }
+.teaser-text strong { font-weight: 900; font-size: 14px; }
+.teaser-text .big { font-size: 24px; }
+.teaser-go { font-size: 13px; font-weight: 900; color: var(--blue); }
 
 @media (prefers-reduced-motion: reduce) {
   .sheet, .ring-bar, .btn { transition: none; }
