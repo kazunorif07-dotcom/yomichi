@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="読書時間を記録して、読んだ分野で自分だけの「知の地図」をつくる読書記録アプリ">
+<meta name="theme-color" content="#3550F0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ヨミチ">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>ヨミチ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Maru+Gothic:wght@500;700;900&display=swap">
+<link rel="stylesheet" href="style.css">
+
+</head>
+<body>
+<!-- ===== ヘッダー（アプリ名と設定ボタン） ===== -->
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <h1 class="brand">ヨミチ<span class="brand-dot" aria-hidden="true"></span></h1>
+    <button class="icon-btn" data-action="settings" aria-label="目標の設定">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ===== 各画面の入れ物。中身は app.js が描く ===== -->
+<main class="wrap" id="app">
+  <section class="view" id="view-home" aria-label="ホーム"></section>
+  <section class="view" id="view-books" aria-label="本棚" hidden></section>
+  <section class="view" id="view-history" aria-label="記録の一覧" hidden></section>
+  <section class="view" id="view-map" aria-label="知の地図" hidden></section>
+  <section class="view" id="view-stats" aria-label="グラフ" hidden></section>
+</main>
+
+<!-- ===== タイマー中に出るミニプレーヤー ===== -->
+<div class="player" id="player" hidden></div>
+
+<!-- ===== 画面下のタブバー（親指で押しやすい位置） ===== -->
+<nav class="tabbar" aria-label="メニュー">
+  <div class="tabbar-inner">
+    <button class="tab" data-action="go" data-view="home" aria-current="page">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      <span>ホーム</span>
+    </button>
+    <button class="tab" data-action="go" data-view="map">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z M9 4v13.5M15 6.5V20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      <span>地図</span>
+    </button>
+    <button class="tab tab-main" data-action="record" aria-label="読書を記録する">
+      <span class="tab-main-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span>
+      <span>記録</span>
+    </button>
+    <button class="tab" data-action="go" data-view="stats">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M6.5 16v-5M11 16V6M15.5 16v-7M20 16v-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      <span>グラフ</span>
+    </button>
+    <button class="tab" data-action="go" data-view="books">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h3v16H5zM10 4h3v16h-3zM15.2 5.2l2.9-.8 3.6 14.6-2.9.8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      <span>本棚</span>
+    </button>
+  </div>
+</nav>
+
+<!-- ===== 下から出てくる入力パネル（ボトムシート） ===== -->
+<div class="backdrop" id="backdrop" data-action="close-sheet" hidden></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden>
+  <div class="sheet-head">
+    <h2 id="sheet-title"></h2>
+    <button class="icon-btn" data-action="close-sheet" aria-label="閉じる">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="sheet-body"></div>
+</div>
+
+<!-- ===== お知らせと紙吹雪 ===== -->
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<canvas class="confetti" id="confetti" aria-hidden="true" hidden></canvas>
+
+<script src="app.js"></script>
+</body>
+</html>
