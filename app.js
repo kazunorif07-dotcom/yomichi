@@ -803,56 +803,193 @@ function submitBookForm(form) {
   render();
 }
 
-// --- 本の検索（Google Books）---
-// ※ claude.ai の公開ページでは外部への通信が遮断されるため、検索は失敗して案内を出す。
-//   GitHub Pages など普通のWebサイトに置けば、そのまま動く。
+// --- 本の検索 ---
+// 3つの無料の本のデータベースを使う。
+//   1. Google Books：表紙が多い。ただしAPIキーなしだと回数制限ですぐ使えなくなる
+//   2. 国立国会図書館サーチ：日本の本に強い。分類番号（NDC）から分野を判定できる
+//   3. Open Library：英語の本に強く、表紙も取れる
+// Google Books が使えないときは、2と3を同時に検索する。
+const GOOGLE_BOOKS_KEY = ''; // 任意：Google Books のAPIキー（入れると表紙が出やすくなる）
 let searchResults = [];
+let searchSeq = 0; // 古い検索結果が後から届いても無視するための番号
 
 async function searchBooks() {
   const q = $('#bs-q').value.trim();
   const status = $('#bs-status');
   const list = $('#bs-results');
   if (!q) { status.textContent = '検索する言葉を入れてください。'; return; }
+  const seq = ++searchSeq;
   status.textContent = 'さがしています…';
   list.innerHTML = '';
-  const isbn = q.replace(/[-\s]/g, '');
-  const query = /^\d{10}(\d{3})?$/.test(isbn) ? `isbn:${isbn}` : q;
-  const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=12&printType=books`
-    + '&fields=items(volumeInfo(title,subtitle,authors,pageCount,categories,imageLinks,industryIdentifiers,language))';
+  const digits = q.replace(/[-\s]/g, '');
+  const isbn = /^(\d{9}[\dX]|\d{13})$/i.test(digits) ? digits : '';
+  const isJapanese = /[぀-ヿ㐀-鿿]/.test(q);
+
+  let results = [];
+  let source = '';
   try {
-    const res = await fetch(url);
-    if (res.status === 429) { status.textContent = '検索が混み合っています。少し待ってからもう一度どうぞ。'; return; }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
-    searchResults = (json.items || []).map(parseVolume);
-    if (!searchResults.length) { status.textContent = '見つかりませんでした。言葉を変えるか、下に手で入力してください。'; return; }
-    status.textContent = `${searchResults.length}件見つかりました。タップで自動入力。`;
-    list.innerHTML = searchResults.map((r, i) => `
-      <button type="button" class="result-card" data-action="pick-result" data-i="${i}">
-        ${coverHtml({ title: r.title, author: r.author, field: r.field, position: 'trunk', coverUrl: r.coverUrl })}
-        <span class="result-title">${esc(r.title)}</span>
-        <span class="result-sub">${esc(r.author || '')}${r.pages ? `・${r.pages}p` : ''}</span>
-      </button>`).join('');
-  } catch (e) {
-    status.textContent = 'ネット検索に接続できませんでした。今の公開場所では使えないことがあります。下に手で入力し、表紙は写真から登録できます。';
+    results = await searchGoogle(isbn ? `isbn:${isbn}` : q);
+    source = 'Google Books';
+  } catch (e) { /* 回数制限など。次の検索先へ */ }
+
+  if (!results.length) {
+    // 日本の本（日本語の言葉や、978-4で始まるISBN）は国会図書館を優先
+    const japaneseBook = isJapanese || /^(9784|4)/.test(isbn);
+    const tasks = japaneseBook ? [searchNdl(q, isbn), searchOpenLibrary(q, isbn)] : [searchOpenLibrary(q, isbn), searchNdl(q, isbn)];
+    if (isJapanese) tasks.pop(); // 日本語の言葉で Open Library を探しても、ほぼ見つからない
+    const settled = await Promise.allSettled(tasks);
+    results = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
+    source = isJapanese ? '国立国会図書館サーチ' : '国立国会図書館サーチ・Open Library';
+    if (!results.length && settled.every((s) => s.status === 'rejected')) {
+      if (seq === searchSeq) status.textContent = '本のデータベースに接続できませんでした。電波を確認するか、下に手で入力してください。';
+      return;
+    }
   }
+  if (seq !== searchSeq) return;
+
+  // 同じ本（同じISBN・同じタイトル）は1つにまとめ、タイトルが検索語に近い本を前に
+  const seen = new Set();
+  const norm = (t) => t.toLowerCase().replace(/[\s・:：『』「」]/g, '');
+  const nq = norm(q);
+  const score = (r) => {
+    const t = norm(r.title);
+    const main = norm(r.title.split(/\s*[:：]\s*/)[0]); // 「本題 : 副題」の本題
+    return (main === nq || t === nq ? 3 : t.startsWith(nq) ? 2 : t.includes(nq) ? 1 : 0) + (r.isbn ? 0.5 : 0);
+  };
+  searchResults = results.filter((r) => {
+    const key = r.isbn || r.title;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map((r, i) => ({ r, i, s: score(r) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .map((x) => x.r).slice(0, 15);
+
+  if (!searchResults.length) { status.textContent = '見つかりませんでした。言葉を短くするか、下に手で入力してください。'; return; }
+  status.textContent = `${searchResults.length}件（${source}）。タップで自動入力。表紙がない本は自動の表紙になります。`;
+  list.innerHTML = searchResults.map((r, i) => `
+    <button type="button" class="result-card" data-action="pick-result" data-i="${i}">
+      ${coverHtml({ title: r.title, author: r.author, field: r.field, position: 'trunk', coverUrl: r.coverUrl })}
+      <span class="result-title">${esc(r.title)}</span>
+      <span class="result-sub">${esc(r.author || '')}${r.pages ? `・${r.pages}p` : ''}</span>
+    </button>`).join('');
 }
 
-function parseVolume(item) {
-  const v = item.volumeInfo || {};
-  const ids = v.industryIdentifiers || [];
-  const isbn = (ids.find((x) => x.type === 'ISBN_13') || ids.find((x) => x.type === 'ISBN_10') || {}).identifier || '';
-  let coverUrl = (v.imageLinks && (v.imageLinks.thumbnail || v.imageLinks.smallThumbnail)) || '';
-  coverUrl = coverUrl.replace(/^http:/, 'https:');
-  // 日本の本で表紙がないときは、国立国会図書館の書影を使う
-  if (!coverUrl && isbn.startsWith('9784')) coverUrl = `https://ndlsearch.ndl.go.jp/thumbnail/${isbn}.jpg`;
-  const title = [v.title, v.subtitle].filter(Boolean).join(' ');
-  return {
-    title, author: (v.authors || []).join('、'), pages: v.pageCount || '',
-    lang: v.language === 'en' ? 'en' : 'ja',
-    field: guessField(`${(v.categories || []).join(' ')} ${title}`),
-    coverUrl, isbn,
-  };
+async function searchGoogle(query) {
+  const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=12&printType=books`
+    + '&fields=items(volumeInfo(title,subtitle,authors,pageCount,categories,imageLinks,industryIdentifiers,language))'
+    + (GOOGLE_BOOKS_KEY ? `&key=${GOOGLE_BOOKS_KEY}` : '');
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Google Books ${res.status}`);
+  const json = await res.json();
+  return (json.items || []).map((item) => {
+    const v = item.volumeInfo || {};
+    const ids = v.industryIdentifiers || [];
+    const isbn = (ids.find((x) => x.type === 'ISBN_13') || ids.find((x) => x.type === 'ISBN_10') || {}).identifier || '';
+    const title = [v.title, v.subtitle].filter(Boolean).join(' ');
+    const img = v.imageLinks && (v.imageLinks.thumbnail || v.imageLinks.smallThumbnail);
+    return {
+      title, author: (v.authors || []).join('、'), pages: v.pageCount || '',
+      lang: v.language === 'en' ? 'en' : 'ja',
+      field: guessField(`${(v.categories || []).join(' ')} ${title}`),
+      coverUrl: img ? img.replace(/^http:/, 'https:') : ndlThumb(isbn), isbn,
+    };
+  });
+}
+
+// 国立国会図書館サーチ（結果はXML）
+async function searchNdl(q, isbn) {
+  const base = 'https://ndlsearch.ndl.go.jp/api/opensearch?mediatype=books&cnt=15&';
+  let items = await fetchNdl(base + (isbn ? `isbn=${isbn}` : `title=${encodeURIComponent(q)}`));
+  if (!items.length && !isbn) items = await fetchNdl(base + `any=${encodeURIComponent(q)}`);
+  return items;
+}
+
+async function fetchNdl(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`NDL ${res.status}`);
+  const xml = new DOMParser().parseFromString(await res.text(), 'text/xml');
+  return [...xml.getElementsByTagName('item')].map((item) => {
+    const all = (tag) => [...item.getElementsByTagName(tag)];
+    const text = (tag) => (all(tag)[0]?.textContent || '').trim();
+    const typed = (tag, type) => all(tag).find((el) => (el.getAttribute('xsi:type') || '').endsWith(type))?.textContent.trim() || '';
+    const isbn = typed('dc:identifier', 'ISBN').replace(/-/g, '');
+    const ndc = typed('dc:subject', 'NDC10') || typed('dc:subject', 'NDC9') || typed('dc:subject', 'NDC8');
+    const volume = text('dcndl:volume');
+    const title = [text('dc:title'), volume].filter(Boolean).join(' ');
+    // 「xii, 301p」のような書き方から、いちばん大きいページ数を取り出す
+    const pageNums = (text('dc:extent').match(/(\d+)\s*p/g) || []).map((s) => parseInt(s, 10));
+    return {
+      title,
+      author: all('dc:creator').slice(0, 2).map((el) => formatName(el.textContent)).join('、'),
+      pages: pageNums.length ? Math.max(...pageNums) : '',
+      lang: /[぀-ヿ㐀-鿿]/.test(title) ? 'ja' : 'en',
+      field: fieldFromNdc(ndc) || guessField(`${all('dc:subject').map((el) => el.textContent).join(' ')} ${title}`),
+      coverUrl: ndlThumb(isbn), isbn,
+    };
+  }).filter((r) => r.title);
+}
+
+// 「柴田, 裕之, 1959-」→「柴田裕之」、「Harari, Yuval N., 1976-」→「Yuval N. Harari」
+function formatName(raw) {
+  const parts = raw.split(/,\s*/).map((s) => s.trim()).filter((s) => s && !/^\d|^\d*-\d*$/.test(s));
+  if (parts.length < 2) return parts[0] || '';
+  return /[぀-ヿ㐀-鿿]/.test(parts[0]) ? parts[0] + parts[1] : `${parts[1]} ${parts[0]}`;
+}
+
+const ndlThumb = (isbn) => (/^97[89]\d{10}$/.test(isbn) ? `https://ndlsearch.ndl.go.jp/thumbnail/${isbn}.jpg` : '');
+
+// 日本十進分類法（NDC）の番号から、このアプリの分野を決める
+function fieldFromNdc(ndc) {
+  const n = parseFloat(ndc);
+  if (Number.isNaN(n)) return '';
+  const c = Math.floor(n); // 例：007.1 → 7
+  if (c >= 7 && c < 8) return 'コンピュータ・AI';
+  if (c < 100) return '';
+  if (c >= 140 && c < 150) return '心理学・認知科学';
+  if (c >= 160 && c < 200) return '宗教';
+  if (c < 200) return '哲学・倫理';
+  if (c < 300) return '歴史';
+  if (c >= 310 && c < 330) return '政治・公共政策';
+  if (c >= 390 && c < 400) return '政治・公共政策';
+  if (c >= 338 && c < 339) return '金融・投資';
+  if (c >= 335 && c < 337) return '経営・起業';
+  if (c >= 330 && c < 350) return '経済学';
+  if (c < 400) return '社会学・人類学';
+  if (c >= 410 && c < 420) return '数学・統計';
+  if ((c >= 420 && c < 430) || (c >= 440 && c < 460)) return '物理学・宇宙';
+  if (c >= 430 && c < 440) return '化学・素材';
+  if (c >= 460 && c < 490) return '生物・進化';
+  if (c >= 490 && c < 500) return '医学・健康';
+  if (c < 500) return '物理学・宇宙';
+  if (c >= 547 && c < 549) return 'コンピュータ・AI';
+  if (c >= 570 && c < 580) return '化学・素材';
+  if (c >= 590 && c < 600) return '医学・健康';
+  if (c < 600) return '工学・エネルギー';
+  if (c >= 670 && c < 680) return '経営・起業';
+  if (c < 700) return '経営・起業';
+  if (c < 800) return '芸術・デザイン';
+  return '文学・小説'; // 800番台（言語）と900番台（文学）
+}
+
+// Open Library（英語の本。表紙あり）
+async function searchOpenLibrary(q, isbn) {
+  const url = `https://openlibrary.org/search.json?${isbn ? `isbn=${isbn}` : `q=${encodeURIComponent(q)}`}&limit=10`
+    + '&fields=title,subtitle,author_name,number_of_pages_median,isbn,cover_i,subject,language';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Open Library ${res.status}`);
+  const json = await res.json();
+  return (json.docs || []).map((d) => {
+    const title = [d.title, d.subtitle].filter(Boolean).join(': ');
+    const isbn13 = (d.isbn || []).find((x) => /^97[89]\d{10}$/.test(x)) || '';
+    const langs = d.language || [];
+    return {
+      title, author: (d.author_name || []).slice(0, 2).join('、'), pages: d.number_of_pages_median || '',
+      lang: langs.includes('jpn') && !langs.includes('eng') ? 'ja' : 'en',
+      field: guessField(`${(d.subject || []).slice(0, 15).join(' ')} ${title}`),
+      coverUrl: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : '', isbn: isbn13,
+    };
+  });
 }
 
 function pickResult(i) {

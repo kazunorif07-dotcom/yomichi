@@ -17,4 +17,4 @@
 | `app.js` | 動き（保存・計算・描画・タイマー） |
 | `manifest.webmanifest`, `icons/` | ホーム画面に追加したときの名前とアイコン |
 
-本の検索には Google Books API、日本の本の表紙の補完には国立国会図書館サーチの書影を使っています。
+本の検索には Google Books API・国立国会図書館サーチ・Open Library を使っています（Google Books が回数制限のときは、残りの2つで自動的に検索します）。分野は国立国会図書館の分類番号（NDC）から自動で判定します。
