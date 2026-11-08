@@ -1,6 +1,6 @@
 'use strict';
 /* =========================================================
-   ヨミチ — 読書記録アプリ（段階3）
+   ヨミチ — 読書記録アプリ（段階4）
    このファイルの構成:
      1. 定数（分野・状態・表紙の色など、変わらない一覧）
      2. データの読み書き（端末の localStorage に保存）
@@ -315,6 +315,7 @@ function ringSvg(fraction, r = 32, stroke = 9) {
 /* ---------- 5. 画面の描画 ---------- */
 let currentView = 'home';
 let bookFilter = 'all';
+let shelfMode = 'books'; // 本棚タブの表示：'books'（本）か 'notes'（メモ）
 
 function render() {
   if (currentView === 'home') renderHome();
@@ -412,6 +413,8 @@ function renderHome() {
       </div>
     </div>
 
+    ${dailyNoteHtml()}
+
     <section class="section">
       <div class="section-head"><h2 class="section-title">読書中</h2>
         <button class="link-btn" data-action="go" data-view="books">本棚へ</button></div>
@@ -461,8 +464,14 @@ function renderBooks() {
     .map((f) => `<button class="filter" data-action="filter" data-status="${f.id}" aria-pressed="${bookFilter === f.id}">${f.label} <span class="num">${f.id === 'all' ? data.books.length : count(f.id)}</span></button>`)
     .join('');
 
+  const tabs = segHtml('shelf-mode', [{ id: 'books', label: `本 ${data.books.length}` }, { id: 'notes', label: `メモ ${data.notes.length}` }], shelfMode);
+  if (shelfMode === 'notes') {
+    el.innerHTML = `<div class="section-head"><h2 class="section-title">本棚</h2></div>${tabs}${notesListHtml()}`;
+    return;
+  }
   el.innerHTML = `
     <div class="section-head"><h2 class="section-title">本棚</h2></div>
+    ${tabs}
     <div class="filters" role="toolbar" aria-label="状態で絞り込み">${filters}</div>
     ${books.length ? `<div class="shelf">${books.map((b) => `
         <button class="shelf-item" data-action="open-book" data-id="${b.id}">
@@ -791,16 +800,21 @@ function submitBookForm(form) {
     coverUrl: formCover.coverUrl || '', coverData: formCover.coverData || '', isbn: formCover.isbn || '',
   };
   const id = form.dataset.id;
+  let target;
+  const wasDone = id && bookById(id).status === 'done';
   if (id) {
-    Object.assign(bookById(id), values);
+    target = Object.assign(bookById(id), values);
     toast('変更を保存しました');
   } else {
-    data.books.push({ id: newId(), createdAt: new Date().toISOString(), ...values });
+    target = { id: newId(), createdAt: new Date().toISOString(), ...values };
+    data.books.push(target);
     toast(`「${title}」を本棚に追加しました`);
   }
   save();
-  closeSheet();
   render();
+  // 読了にしたときは、感想とつながりを書く画面へ
+  if (status === 'done' && !wasDone && !target.review) openReviewForm(target.id, true);
+  else closeSheet();
 }
 
 // --- 本の検索 ---
@@ -1082,6 +1096,7 @@ function openBookDetail(id) {
         <dt>読書時間</dt><dd>合計 ${fmtMinutes(total)}（${logs.length}回）</dd>
         <dt>平均の速さ</dt><dd>${speedOf(pages, total) ? `時速${speedOf(pages, total)}ページ` : '—'}</dd>
       </dl>
+      ${bookNotesHtml(b)}
       <div class="section">
         <h4 class="section-title">この本の記録</h4>
         ${logs.length ? `<div class="list">${logs.map((s) => logItemHtml(s, true)).join('')}</div>` : '<p class="empty-small">まだ記録がありません。</p>'}
@@ -1176,7 +1191,9 @@ function addSession({ book, date, minutes, startPage, endPage, source }) {
 
   let msg = `${endPage - startPage}ページ・${fmtMinutes(minutes)}を記録しました`;
   let party = false;
+  let finished = false;
   if (endPage >= book.totalPages && book.status !== 'done') {
+    finished = true;
     book.status = 'done';
     book.finishedAt = date;
     msg = `読了おめでとう！「${book.title}」を読み終えました`;
@@ -1190,8 +1207,9 @@ function addSession({ book, date, minutes, startPage, endPage, source }) {
   else if (!party && after.streak > before.streak && after.streak >= 2) { msg = `${after.streak}日連続！この調子`; }
 
   save();
-  closeSheet();
   render();
+  if (finished) openReviewForm(book.id, true); // 読了したら、感想とつながりを書く画面へ
+  else closeSheet();
   toast(msg);
   if (party) celebrate();
 }
@@ -1210,6 +1228,15 @@ function openSettings() {
         <span class="field-hint">ホームの「読書チャレンジ」に達成率が出ます。</span></div>
       <button class="btn btn-primary btn-block" type="submit">目標を保存する</button>
     </form>
+    <div class="form backup">
+      <h3 class="section-title">Markdownで書き出す</h3>
+      <p class="field-hint">読了本の一覧・分野別の冊数・感想・メモをまとめます。ChatGPT や Claude などのAIに貼り付けると、次に読む本を相談できます（相談用の質問文つき）。</p>
+      <div class="btn-row">
+        <button class="btn btn-primary" data-action="export-md">コピーする</button>
+        <button class="btn btn-ghost" data-action="export-md-file">ファイルで保存</button>
+      </div>
+      <textarea class="input" id="md-text" rows="6" hidden readonly></textarea>
+    </div>
     <div class="form backup">
       <h3 class="section-title">データの引っ越し・バックアップ</h3>
       <p class="field-hint">データはこの端末のこのブラウザの中だけにあります。機種変更や別の場所で使うときは、ここでコピーして、移った先で貼り付けてください。</p>
@@ -1261,6 +1288,270 @@ function submitSettings(form) {
   closeSheet();
   render();
   toast('目標を保存しました');
+}
+
+/* ---------- メモ・感想・ふりかえり・書き出し（段階4） ---------- */
+const NOTE_TYPES = [
+  { id: 'quote', label: '印象に残った文' },
+  { id: 'thought', label: '自分の考え' },
+];
+const notesOf = (bookId) => data.notes.filter((n) => n.bookId === bookId).sort((a, b) => (a.page || 0) - (b.page || 0));
+
+function noteHtml(n, withBook = false) {
+  const b = bookById(n.bookId);
+  return `
+    <article class="note note-${n.type}">
+      <p class="note-text">${esc(n.text)}</p>
+      <div class="note-meta">
+        <span class="note-tag">${labelOf(NOTE_TYPES, n.type)}</span>
+        ${withBook && b ? `<button class="link-btn" data-action="open-book" data-id="${b.id}">${esc(b.title)}</button>` : ''}
+        ${n.page ? `<span class="num">p.${n.page}</span>` : ''}
+        <span class="note-actions">
+          <button class="del-btn" data-action="edit-note" data-id="${n.id}">編集</button>
+          <button class="del-btn" data-action="delete-note" data-id="${n.id}">削除</button>
+        </span>
+      </div>
+    </article>`;
+}
+
+// --- メモの追加・編集 ---
+let noteReturn = null; // メモを保存したあとに戻る画面（タイマーなど）
+
+function openNoteForm(bookId, noteId) {
+  const n = noteId ? data.notes.find((x) => x.id === noteId) : null;
+  const book = bookById(n ? n.bookId : bookId);
+  if (!book) return;
+  noteReturn = sheetMode === 'timer' ? 'timer' : sheetMode === 'detail' ? 'detail' : null;
+  const page = n ? n.page : (data.timer && data.timer.bookId === book.id ? '' : lastPageOf(book.id) || '');
+  openSheet(n ? 'メモを編集' : 'メモを残す', `
+    <form class="form" id="note-form" data-book="${book.id}" data-id="${n ? n.id : ''}" novalidate>
+      <div class="focus-book">${coverHtml(book, 'xs')}<div><strong>${esc(book.title)}</strong><span>${esc(book.author || '')}</span></div></div>
+      ${segHtml('nf-type', NOTE_TYPES, n ? n.type : 'quote')}
+      <div class="field"><label for="nf-text">内容</label>
+        <textarea class="input" id="nf-text" rows="5" placeholder="心に残った一文や、読んで考えたこと">${esc(n ? n.text : '')}</textarea></div>
+      <div class="field"><label for="nf-page">ページ</label>
+        <input class="input" id="nf-page" type="number" inputmode="numeric" min="0" max="${book.totalPages}" value="${page}"></div>
+      <p class="error" id="nf-error" hidden></p>
+      <button class="btn btn-primary btn-block" type="submit">保存する</button>
+    </form>`, 'note');
+  setTimeout(() => $('#nf-text')?.focus(), 250);
+}
+
+function submitNoteForm(form) {
+  const text = $('#nf-text').value.trim();
+  if (!text) { showError('#nf-error', '内容を入力してください。'); return; }
+  const page = parseInt($('#nf-page').value, 10) || null;
+  const type = form.querySelector('input[name="nf-type"]:checked').value;
+  const id = form.dataset.id;
+  const bookId = form.dataset.book;
+  if (id) Object.assign(data.notes.find((x) => x.id === id), { text, page, type });
+  else data.notes.push({ id: newId(), bookId, type, text, page, createdAt: new Date().toISOString() });
+  save();
+  toast('メモを保存しました');
+  afterNote(bookId);
+}
+
+function afterNote(bookId) {
+  render();
+  if (noteReturn === 'timer' && data.timer) openTimerSheet();
+  else if (noteReturn === 'detail') openBookDetail(bookId);
+  else closeSheet();
+}
+
+// --- 読了時の感想とつながり ---
+function openReviewForm(bookId, celebrateFirst = false) {
+  const b = bookById(bookId);
+  if (!b) return;
+  const others = data.books.filter((x) => x.id !== bookId && (x.status === 'done' || x.status === 'reading'));
+  const linked = new Set(b.links || []);
+  openSheet(celebrateFirst ? '読了おめでとう！' : '感想とつながり', `
+    <form class="form" id="review-form" data-id="${bookId}" novalidate>
+      <div class="focus-book">${coverHtml(b, 'xs')}<div><strong>${esc(b.title)}</strong><span>${b.finishedAt ? `${fmtDate(b.finishedAt)} 読了` : ''}</span></div></div>
+      <div class="field"><label for="rv-text">一言感想</label>
+        <input class="input" id="rv-text" maxlength="140" value="${esc(b.review || '')}" placeholder="例：人類史を「虚構を信じる力」で読み解く視点が新鮮">
+        <span class="field-hint">自分の言葉で、ひとことだけ。</span></div>
+      <div class="field"><label for="rv-conn">他の本・分野とのつながり</label>
+        <textarea class="input" id="rv-conn" rows="3" placeholder="例：経済学の「信用」の話とつながる。次は宗教の幹の本を読みたい">${esc(b.connections || '')}</textarea></div>
+      ${others.length ? `<div class="field"><span class="field-label">つながっている本</span>
+        <div class="link-chips">${others.map((o) => `
+          <input type="checkbox" id="rv-link-${o.id}" value="${o.id}" ${linked.has(o.id) ? 'checked' : ''}>
+          <label for="rv-link-${o.id}" style="--cover:${FIELD_COLORS[o.field] || '#4A4F5C'}">${esc(o.title)}</label>`).join('')}</div>
+        <span class="field-hint">選んだ本どうしが、お互いの詳細画面に表示されます。</span></div>` : ''}
+      <button class="btn btn-primary btn-block" type="submit">保存する</button>
+      ${celebrateFirst ? '<button type="button" class="btn btn-ghost btn-block" data-action="close-sheet">あとで書く</button>' : ''}
+    </form>`, 'review');
+}
+
+function submitReviewForm(form) {
+  const b = bookById(form.dataset.id);
+  b.review = $('#rv-text').value.trim();
+  b.connections = $('#rv-conn').value.trim();
+  const picked = [...form.querySelectorAll('.link-chips input:checked')].map((el) => el.value);
+  // つながりは両方向にする（Aを選んだら、Aの側にもこの本を足す／外したら消す）
+  const before = new Set(b.links || []);
+  b.links = picked;
+  for (const other of data.books) {
+    if (other.id === b.id) continue;
+    const set = new Set(other.links || []);
+    if (picked.includes(other.id)) set.add(b.id);
+    else if (before.has(other.id)) set.delete(b.id);
+    other.links = [...set];
+  }
+  save();
+  toast('感想を保存しました');
+  render();
+  openBookDetail(b.id);
+}
+
+// 本の詳細に出す「感想・つながり・メモ」のかたまり
+function bookNotesHtml(b) {
+  const links = (b.links || []).map(bookById).filter(Boolean);
+  const notes = notesOf(b.id);
+  return `
+    ${b.status === 'done' ? `
+      <div class="section">
+        <div class="section-head"><h4 class="section-title">感想とつながり</h4>
+          <button class="link-btn" data-action="review" data-id="${b.id}">${b.review || b.connections ? '編集' : '書く'}</button></div>
+        ${b.review ? `<p class="review-quote">${esc(b.review)}</p>` : ''}
+        ${b.connections ? `<p class="review-conn">${esc(b.connections)}</p>` : ''}
+        ${!b.review && !b.connections ? '<p class="empty-small">一言感想と、他の本とのつながりを残しておこう。</p>' : ''}
+      </div>` : ''}
+    ${links.length ? `
+      <div class="section">
+        <h4 class="section-title">つながっている本</h4>
+        <div class="link-list">${links.map((o) => `<button class="link-book" data-action="open-book" data-id="${o.id}">${coverHtml(o, 'xs')}<span>${esc(o.title)}<small>${esc(o.field)}</small></span></button>`).join('')}</div>
+      </div>` : ''}
+    <div class="section">
+      <div class="section-head"><h4 class="section-title">メモ（${notes.length}）</h4>
+        <button class="link-btn" data-action="add-note" data-id="${b.id}">＋ メモを残す</button></div>
+      ${notes.length ? `<div class="list">${notes.map((n) => noteHtml(n)).join('')}</div>` : '<p class="empty-small">印象に残った文や、自分の考えをページ番号つきで残せます。</p>'}
+    </div>`;
+}
+
+// --- 今日のふりかえり（毎日1つ、過去のメモを表示） ---
+let reviewOffset = 0; // 「別のメモ」を押した回数
+function dailyNote() {
+  if (!data.notes.length) return null;
+  // 日付から決まる番号で選ぶので、同じ日は同じメモになる
+  const seed = [...todayStr()].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+  const sorted = [...data.notes].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return sorted[(seed + reviewOffset) % sorted.length];
+}
+
+function dailyNoteHtml() {
+  const n = dailyNote();
+  if (!n) {
+    return data.books.length ? `
+      <section class="daily daily-empty">
+        <span class="tile-label">今日のふりかえり</span>
+        <p>本のメモを残すと、ここに毎日1つ、過去のメモが出てきます。読んだことを忘れないための復習です。</p>
+      </section>` : '';
+  }
+  const b = bookById(n.bookId);
+  return `
+    <section class="daily">
+      <div class="daily-head"><span class="tile-label">今日のふりかえり</span>
+        ${data.notes.length > 1 ? '<button class="link-btn" data-action="next-daily">別のメモ</button>' : ''}</div>
+      <p class="daily-text">${esc(n.text)}</p>
+      <div class="daily-meta">
+        <span class="note-tag">${labelOf(NOTE_TYPES, n.type)}</span>
+        ${b ? `<button class="link-btn" data-action="open-book" data-id="${b.id}">${esc(b.title)}${n.page ? `・p.${n.page}` : ''}</button>` : ''}
+      </div>
+    </section>`;
+}
+
+// --- 本棚の「メモ」一覧 ---
+let noteQuery = '';
+function notesListHtml() {
+  const q = noteQuery.trim().toLowerCase();
+  const list = [...data.notes]
+    .filter((n) => !q || n.text.toLowerCase().includes(q) || (bookById(n.bookId)?.title || '').toLowerCase().includes(q))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return `
+    <input class="input" id="note-q" type="search" placeholder="メモを検索（言葉・本の名前）" value="${esc(noteQuery)}" autocomplete="off">
+    ${list.length ? `<div class="list" id="note-list">${list.map((n) => noteHtml(n, true)).join('')}</div>`
+      : `<p class="empty-small">${data.notes.length ? '見つかりませんでした。' : 'まだメモがありません。本の詳細画面の「＋ メモを残す」から書けます。'}</p>`}`;
+}
+
+// --- Markdown 書き出し（別のAIに読ませて、次に読む本を相談する用） ---
+function buildMarkdown() {
+  const now = new Date();
+  const done = data.books.filter((b) => b.status === 'done').sort((a, b) => (a.finishedAt || '').localeCompare(b.finishedAt || ''));
+  const totalMin = data.sessions.reduce((a, s) => a + s.minutes, 0);
+  const totalPages = data.sessions.reduce((a, s) => a + sessionPages(s), 0);
+  const stats = fieldStats();
+  const posLabel = (id) => { const p = POSITIONS.find((x) => x.id === id); return p ? `${p.label}（${p.desc}）` : ''; };
+  const line = (s) => String(s || '').replace(/\n+/g, ' ');
+  const L = [];
+  L.push('# 私の読書記録（ヨミチ）', '', `書き出し日：${toDateStr(now)}`, '');
+  L.push('## 概要', '');
+  L.push(`- 読了：${done.length}冊（${now.getFullYear()}年：${yearGoalInfo().done}冊／目標${data.settings.yearGoal}冊）`);
+  L.push(`- 総読書時間：${fmtMinutes(totalMin)}、総ページ：${totalPages}ページ、平均の速さ：時速${speedOf(totalPages, totalMin)}ページ`);
+  L.push(`- 開拓した分野：${stats.filter((s) => s.done).length}／18分野、幹（入門・古典）を読んだ分野：${stats.filter((s) => s.trunkDone).length}`);
+  L.push('- 分類の考え方：「幹」＝その分野の入門・古典、「枝」＝応用、「葉」＝専門・細部', '');
+  L.push('## 分野別の読了冊数', '', '| 分野 | 読了 | 読書中 | 幹を読了 |', '|---|---|---|---|');
+  for (const s of stats) L.push(`| ${s.field} | ${s.done} | ${s.reading} | ${s.trunkDone ? '○' : '—'} |`);
+  L.push('', `まだ0冊の分野：${stats.filter((s) => !s.done).map((s) => s.field).join('、') || 'なし'}`, '');
+  L.push('## 読了した本', '');
+  if (!done.length) L.push('（まだありません）');
+  for (const b of done) {
+    L.push(`### ${b.title}`, '');
+    L.push(`- 著者：${b.author || '—'}／分野：${b.field}／位置：${posLabel(b.position)}／${labelOf(LANGS, b.lang)}／${b.totalPages}ページ`);
+    if (b.finishedAt) L.push(`- 読了日：${b.finishedAt}`);
+    if (b.review) L.push(`- 一言感想：${line(b.review)}`);
+    if (b.connections) L.push(`- つながり：${line(b.connections)}`);
+    const links = (b.links || []).map(bookById).filter(Boolean);
+    if (links.length) L.push(`- つながっている本：${links.map((o) => o.title).join('、')}`);
+    L.push('');
+  }
+  const others = (st) => data.books.filter((b) => b.status === st);
+  for (const [st, title] of [['reading', '読書中の本'], ['want', '読みたい本'], ['paused', '中断した本']]) {
+    if (!others(st).length) continue;
+    L.push(`## ${title}`, '');
+    for (const b of others(st)) L.push(`- ${b.title}（${b.author || '著者不明'}／${b.field}／${posLabel(b.position)}${st === 'reading' ? `／${progressOf(b)}%` : ''}）`);
+    L.push('');
+  }
+  L.push('## メモ', '');
+  if (!data.notes.length) L.push('（まだありません）', '');
+  for (const b of data.books) {
+    const ns = notesOf(b.id);
+    if (!ns.length) continue;
+    L.push(`### ${b.title}`, '');
+    for (const n of ns) L.push(`- ${n.type === 'quote' ? '【引用】' : '【考え】'}${n.page ? `p.${n.page} ` : ''}${line(n.text)}`);
+    L.push('');
+  }
+  L.push('---', '');
+  L.push('この記録をもとに、次に読む本を3〜5冊提案してください。');
+  L.push('- 0冊の分野や「幹」がまだの分野を優先して、知識の地図の空白を埋めたいです');
+  L.push('- 私の感想やメモから、興味の方向性も読み取ってください');
+  L.push('- それぞれ、分野・幹/枝/葉のどれにあたるか・選んだ理由を添えてください');
+  return L.join('\n');
+}
+
+async function exportMarkdown(asFile) {
+  const md = buildMarkdown();
+  if (asFile) {
+    const url = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `yomichi-${todayStr()}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Markdownファイルを保存しました');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(md);
+    toast('コピーしました。AIとの会話に貼り付けて相談してみよう');
+  } catch (e) {
+    const box = $('#md-text');
+    box.hidden = false;
+    box.value = md;
+    box.select();
+    toast('自動でコピーできませんでした。表示した文字を全部選んでコピーしてください');
+  }
 }
 
 /* ---------- 7. 読書タイマー ---------- */
@@ -1324,6 +1615,7 @@ function openTimerSheet() {
         <div class="ctrl"><button class="round-btn" data-action="toggle-timer" aria-label="${t.running ? '一時停止' : '再開'}">${t.running ? ICONS.pause : ICONS.play}</button>${t.running ? '一時停止' : '再開'}</div>
         <div class="ctrl"><button class="round-btn small" data-action="finish-timer" aria-label="終了して記録">${ICONS.stop}</button>終了</div>
       </div>
+      <button class="btn btn-ghost btn-small" data-action="add-note" data-id="${b.id}">＋ 読みながらメモする</button>
       <p class="field-hint">画面を閉じても、タイマーは裏で進み続けます。</p>
       <button class="del-btn" data-action="discard-timer">記録せずにタイマーを取り消す</button>
     </div>`, 'timer');
@@ -1517,6 +1809,17 @@ function loadSample() {
     ses(b1, 9, 35, 0, 28), ses(b1, 6, 50, 28, 66), ses(b2, 5, 30, 0, 22), ses(b1, 4, 25, 66, 84),
     ses(b1, 3, 30, 84, 101), ses(b2, 2, 25, 22, 40), ses(b1, 1, 20, 101, 118),
   );
+  b3.review = '生き物を「遺伝子の乗り物」と見る視点で、世界の見え方が変わった';
+  b3.connections = '心理学の「人はなぜ協力するのか」の話とつながる。次は進化心理学の本へ';
+  b3.links = [b2.id]; b2.links = [b3.id];
+  b6.review = '国の豊かさを決めるのは地理より制度、という主張に納得';
+  const note = (book, type, page, text, n) => ({ id: newId(), bookId: book.id, type, page, text, sample: true, createdAt: new Date(Date.now() - n * 86400000).toISOString() });
+  data.notes.push(
+    note(b1, 'quote', 41, '虚構のおかげで、私たちはたんに物事を想像するだけでなく、集団でそうすることができるようになった。', 6),
+    note(b1, 'thought', 88, 'お金も国家も「みんなが信じている物語」だと考えると、経済学の本の読み方が変わりそう。', 3),
+    note(b2, 'quote', 30, 'システム1は自動的に高速で働き、努力はまったく不要か、必要であってもわずかである。', 2),
+    note(b3, 'thought', 540, '利他的に見える行動も、遺伝子の視点で見ると説明できる。人間の道徳はどこから来るのか、哲学の本でも考えたい。', 21),
+  );
   save();
   render();
   toast('サンプルを入れました。本棚の一番下からいつでも消せます');
@@ -1526,6 +1829,8 @@ function clearSample() {
   const ids = new Set(data.books.filter((b) => b.sample).map((b) => b.id));
   data.books = data.books.filter((b) => !b.sample);
   data.sessions = data.sessions.filter((s) => !s.sample && !ids.has(s.bookId));
+  data.notes = data.notes.filter((n) => !ids.has(n.bookId));
+  for (const o of data.books) if (o.links) o.links = o.links.filter((x) => !ids.has(x));
   if (data.timer && ids.has(data.timer.bookId)) data.timer = null;
   save();
   render();
@@ -1563,6 +1868,22 @@ document.addEventListener('click', (e) => {
     case 'close-sheet': closeSheet(); break;
     case 'settings': openSettings(); break;
     case 'export-json': exportJson(); break;
+    case 'export-md': exportMarkdown(false); break;
+    case 'export-md-file': exportMarkdown(true); break;
+    case 'add-note': openNoteForm(id); break;
+    case 'edit-note': openNoteForm(null, id); break;
+    case 'review': openReviewForm(id); break;
+    case 'next-daily': reviewOffset++; renderHome(); break;
+    case 'delete-note':
+      armOrRun(el, () => {
+        const n = data.notes.find((x) => x.id === id);
+        data.notes = data.notes.filter((x) => x.id !== id);
+        save();
+        render();
+        if (sheetMode === 'detail' && n) openBookDetail(n.bookId);
+        toast('メモを削除しました');
+      });
+      break;
     case 'import-json': armOrRun(el, importJson); break;
     case 'filter': bookFilter = el.dataset.status; renderBooks(); break;
     case 'load-sample': loadSample(); break;
@@ -1597,6 +1918,8 @@ document.addEventListener('click', (e) => {
         const b = bookById(id);
         data.books = data.books.filter((x) => x.id !== id);
         data.sessions = data.sessions.filter((s) => s.bookId !== id);
+        data.notes = data.notes.filter((n) => n.bookId !== id);
+        for (const o of data.books) if (o.links) o.links = o.links.filter((x) => x !== id);
         if (data.timer && data.timer.bookId === id) data.timer = null;
         save();
         closeSheet();
@@ -1619,11 +1942,21 @@ document.addEventListener('submit', (e) => {
   if (e.target.id === 'log-form') submitLogForm();
   if (e.target.id === 'finish-form') submitFinish();
   if (e.target.id === 'settings-form') submitSettings(e.target);
+  if (e.target.id === 'note-form') submitNoteForm(e.target);
+  if (e.target.id === 'review-form') submitReviewForm(e.target);
 });
 
 document.addEventListener('input', (e) => {
   if (e.target.closest('#log-form')) updateLogPreview();
   if (e.target.id === 'ff-end') updateFinishPreview();
+  if (e.target.id === 'note-q') {
+    noteQuery = e.target.value;
+    const pos = e.target.selectionStart;
+    renderBooks();
+    const box = $('#note-q');
+    box.focus();
+    box.setSelectionRange(pos, pos);
+  }
 });
 
 document.addEventListener('change', (e) => {
@@ -1640,6 +1973,7 @@ document.addEventListener('change', (e) => {
   if (e.target.name === 'bf-status') $('#bf-finished-wrap').hidden = e.target.value !== 'done';
   if (e.target.id === 'bf-photo') loadPhoto(e.target.files[0]);
   if (e.target.id === 'bf-field' || e.target.name === 'bf-pos') refreshCoverPreview();
+  if (e.target.name === 'shelf-mode') { shelfMode = e.target.value; renderBooks(); }
   if (e.target.name === 'stats-range') { statsRange = e.target.value; chartSel.time = null; renderStats(); }
 });
 
