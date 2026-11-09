@@ -2900,7 +2900,7 @@ document.addEventListener('error', (e) => {
 }, true);
 
 // 新しいバージョンが公開されていないか確認する（スマホが古いページを覚えていることがあるため）
-const APP_VERSION = 17; // 更新するたびに version.json と一緒に上げる
+const APP_VERSION = 18; // 更新するたびに version.json と一緒に上げる
 async function checkUpdate() {
   try {
     const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
