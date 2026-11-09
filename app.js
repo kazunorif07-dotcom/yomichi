@@ -1707,6 +1707,8 @@ function timerElapsed() {
   if (!t) return 0;
   return t.accMs + (t.running ? Date.now() - t.startedAt : 0);
 }
+// タイマー表示用：1文字ずつ同じ幅の箱に入れる（数字の幅で表示が揺れないように）
+const clockHtml = (ms) => [...fmtClock(ms)].map((c) => `<span class="${c === ':' ? 'd colon' : 'd'}">${c}</span>`).join('');
 function fmtClock(ms) {
   const s = Math.floor(ms / 1000);
   const h = Math.floor(s / 3600);
@@ -1751,7 +1753,7 @@ function openTimerSheet() {
           <circle id="focus-bar" cx="135" cy="135" r="${FOCUS_R}" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-dasharray="${FOCUS_C}" stroke-dashoffset="${FOCUS_C}"/>
         </svg>
         <div class="focus-center">
-          <span class="big focus-digits ${t.running ? '' : 'paused'}" id="timer-digits" role="timer">${fmtClock(timerElapsed())}</span>
+          <span class="big focus-digits ${t.running ? '' : 'paused'}" id="timer-digits" role="timer">${clockHtml(timerElapsed())}</span>
           <span class="focus-today" id="timer-today"></span>
         </div>
       </div>
@@ -1829,14 +1831,14 @@ function tick() {
   const ms = timerElapsed();
   const digits = $('#timer-digits');
   if (digits) {
-    digits.textContent = fmtClock(ms);
+    digits.innerHTML = clockHtml(ms);
     const goal = data.settings.dailyGoal;
     const total = minutesOn(todayStr()) + ms / 60000;
     $('#timer-today').textContent = `今日 ${Math.floor(total)}／${goal}分`;
     $('#focus-bar').setAttribute('stroke-dashoffset', FOCUS_C * (1 - Math.min(1, total / goal)));
   }
   const mini = $('#player-time');
-  if (mini) mini.textContent = fmtClock(ms);
+  if (mini) mini.innerHTML = clockHtml(ms);
 }
 setInterval(tick, 500);
 
@@ -1854,7 +1856,7 @@ function renderPlayer() {
     ${coverHtml(b, 'xs')}
     <div class="player-main" data-action="open-timer">
       <span class="player-title">${esc(b.title)}</span>
-      <span class="player-time ${t.running ? '' : 'paused'}" id="player-time">${fmtClock(timerElapsed())}</span>
+      <span class="player-time ${t.running ? '' : 'paused'}" id="player-time">${clockHtml(timerElapsed())}</span>
     </div>
     <button class="player-btn" data-action="toggle-timer" aria-label="${t.running ? '一時停止' : '再開'}">${t.running ? ICONS.pause : ICONS.play}</button>`;
   el.dataset.action = 'open-timer';
