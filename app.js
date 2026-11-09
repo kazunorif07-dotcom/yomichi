@@ -60,8 +60,8 @@ const FIELD_RULES = [
   [/medical|health|fitness|medicine|医/i, '医学・健康'],
   [/engineer|technolog|energy|工学/i, '工学・エネルギー'],
   [/invest|finance|money|金融|投資/i, '金融・投資'],
-  [/economics|経済/i, '経済学'],
   [/business|management|entrepreneur|経営|起業/i, '経営・起業'],
+  [/economics|経済/i, '経済学'],
   [/psycholog|self-help|心理/i, '心理学・認知科学'],
   [/political|law|government|政治|法/i, '政治・公共政策'],
   [/social|sociolog|anthropolog|社会/i, '社会学・人類学'],
@@ -862,41 +862,72 @@ async function searchBooks() {
   const isbn = /^(\d{9}[\dX]|\d{13})$/i.test(digits) ? digits : '';
   const isJapanese = /[぀-ヿ㐀-鿿]/.test(q);
 
-  let results = [];
-  let source = '';
-  try {
-    results = await searchGoogle(isbn ? `isbn:${isbn}` : q);
-    source = 'Google Books';
-  } catch (e) { /* 回数制限など。次の検索先へ */ }
+  // 3つのデータベースを同時に検索する（日本語の言葉では Open Library はほぼ見つからないので省く）
+  const tasks = {
+    google: searchGoogle(isbn ? `isbn:${isbn}` : q),
+    ndl: searchNdl(q, isbn),
+    ol: isJapanese ? Promise.resolve([]) : searchOpenLibrary(q, isbn),
+  };
+  const names = Object.keys(tasks);
+  const settled = await Promise.allSettled(Object.values(tasks));
+  if (seq !== searchSeq) return;
+  const got = {};
+  names.forEach((name, i) => { got[name] = settled[i].status === 'fulfilled' ? settled[i].value.map((r) => ({ ...r, src: name })) : []; });
+  if (settled.every((s) => s.status === 'rejected')) {
+    status.textContent = '本のデータベースに接続できませんでした。電波を確認するか、下に手で入力してください。';
+    return;
+  }
 
-  if (!results.length) {
-    // 日本の本（日本語の言葉や、978-4で始まるISBN）は国会図書館を優先
-    const japaneseBook = isJapanese || /^(9784|4)/.test(isbn);
-    // 日本語の言葉で Open Library を探しても、ほぼ見つからないので国会図書館だけ
-    const tasks = isJapanese ? [searchNdl(q, isbn)]
-      : japaneseBook ? [searchNdl(q, isbn), searchOpenLibrary(q, isbn)]
-      : [searchOpenLibrary(q, isbn), searchNdl(q, isbn)];
-    const settled = await Promise.allSettled(tasks);
-    results = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
-    source = isJapanese ? '国立国会図書館サーチ' : '国立国会図書館サーチ・Open Library';
-    if (!results.length && settled.every((s) => s.status === 'rejected')) {
-      if (seq === searchSeq) status.textContent = '本のデータベースに接続できませんでした。電波を確認するか、下に手で入力してください。';
-      return;
+  // 同じISBNの本は1つに合体させる。
+  //   表紙：Google ＞ Open Library ＞ 国会図書館（国会図書館の表紙は出ないことが多い）
+  //   分野・ページ数・タイトル：国会図書館（分類番号が正確）＞ Open Library ＞ Google
+  const japaneseBook = isJapanese || /^(9784|4)/.test(isbn);
+  const order = japaneseBook ? ['ndl', 'google', 'ol'] : ['google', 'ol', 'ndl'];
+  const coverRank = { google: 0, ol: 1, ndl: 2 };
+  const infoRank = { ndl: 0, ol: 1, google: 2 };
+  const merged = [];
+  const byIsbn = new Map();
+  for (const name of order) {
+    for (const r of got[name]) {
+      const hit = r.isbn && byIsbn.get(r.isbn);
+      if (!hit) {
+        const rec = { ...r, coverSrc: r.coverUrl ? r.src : null };
+        merged.push(rec);
+        if (r.isbn) byIsbn.set(r.isbn, rec);
+        continue;
+      }
+      if (r.coverUrl && (!hit.coverSrc || coverRank[r.src] < coverRank[hit.coverSrc])) { hit.coverUrl = r.coverUrl; hit.coverSrc = r.src; }
+      const better = infoRank[r.src] < infoRank[hit.src];
+      for (const k of ['field', 'pages', 'price', 'author']) if (r[k] && (better || !hit[k])) hit[k] = r[k];
+      if (better) { hit.title = r.title; hit.src = r.src; }
     }
   }
-  if (seq !== searchSeq) return;
+  // ISBNがない版（電子書籍など）は、タイトルと巻（上・下）が同じ本に表紙だけ渡して1つにまとめる
+  const volOf = (t) => (t.match(/(?:^|[\s（(])(上|中|下)(?=$|[\s）)])/) || [])[1] || '';
+  const keyOf = (t) => t.replace(/(?:^|[\s（(])(上|中|下)(?=$|[\s）)])/g, ' ').toLowerCase().replace(/[\s・:：『』「」（）()［］\[\]―-]/g, '') + '|' + volOf(t);
+  const byKey = new Map(merged.filter((r) => r.isbn).map((r) => [keyOf(r.title), r]));
+  const results = merged.filter((r) => {
+    if (r.isbn || !r.coverUrl) return true;
+    const twin = byKey.get(keyOf(r.title));
+    if (!twin) return true;
+    if (!twin.coverSrc || twin.coverSrc === 'ndl') { twin.coverUrl = r.coverUrl; twin.coverSrc = r.src; }
+    return false;
+  });
+  const source = names.filter((n) => got[n].length).map((n) => ({ google: 'Google Books', ndl: '国立国会図書館', ol: 'Open Library' }[n])).join('・');
 
-  // 同じ本（同じISBN・同じタイトル）は1つにまとめ、タイトルが検索語に近い本を前に
+  // タイトルが検索語に近い本を前に。セット・試し読み版などは後ろに。
   const seen = new Set();
-  const norm = (t) => t.toLowerCase().replace(/[\s・:：『』「」]/g, '');
+  const norm = (t) => t.toLowerCase().replace(/[\s・:：『』「」（）()［］\[\]―-]/g, '');
   const nq = norm(q);
   const score = (r) => {
     const t = norm(r.title);
     const main = norm(r.title.split(/\s*[:：]\s*/)[0]); // 「本題 : 副題」の本題
-    return (main === nq || t === nq ? 3 : t.startsWith(nq) ? 2 : t.includes(nq) ? 1 : 0) + (r.isbn ? 0.5 : 0);
+    return (main === nq || t === nq ? 3 : t.startsWith(nq) ? 2 : t.includes(nq) ? 1 : 0)
+      + (r.isbn ? 0.5 : 0) + (r.coverUrl && r.coverSrc !== 'ndl' ? 0.3 : 0)
+      - (/セット|試し読み|特装|合本|全\d+巻|をどう読むか|まんが|マンガ|漫画/.test(r.title) ? 1.5 : 0);
   };
   searchResults = results.filter((r) => {
-    const key = r.isbn || r.title;
+    const key = r.isbn || norm(r.title);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
