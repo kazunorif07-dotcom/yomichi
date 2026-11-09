@@ -846,7 +846,7 @@ function submitBookForm(form) {
 //   2. 国立国会図書館サーチ：日本の本に強い。分類番号（NDC）から分野を判定できる
 //   3. Open Library：英語の本に強く、表紙も取れる
 // Google Books が使えないときは、2と3を同時に検索する。
-const GOOGLE_BOOKS_KEY = ''; // 任意：Google Books のAPIキー（入れると表紙が出やすくなる）
+const GOOGLE_BOOKS_KEY = 'AIzaSyBBNe-e60G-DA9IC37rXfjS2_JOXBg2xZ0'; // Google Books のAPIキー（kazunorif07-dotcom.github.io からだけ使えるよう制限済み）
 let searchResults = [];
 let searchSeq = 0; // 古い検索結果が後から届いても無視するための番号
 
@@ -915,7 +915,7 @@ async function searchBooks() {
 }
 
 async function searchGoogle(query) {
-  const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=12&printType=books`
+  const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=12&printType=books&country=JP`
     + '&fields=items(volumeInfo(title,subtitle,authors,pageCount,categories,imageLinks,industryIdentifiers,language))'
     + (GOOGLE_BOOKS_KEY ? `&key=${GOOGLE_BOOKS_KEY}` : '');
   const res = await fetch(url);
