@@ -349,8 +349,8 @@ function renderHome() {
     el.innerHTML = `
       <div class="hero">
         <div class="hero-covers">${demo.map((d) => `<div style="--r:${d.r}">${coverHtml(d)}</div>`).join('')}</div>
-        <h2>読んだ本で、自分だけの知の地図をつくろう。</h2>
-        <p>タイマーで読書時間を記録して、毎日の連続記録をのばそう。読んだ分野が増えるほど、地図が広がります。</p>
+        <h2>教養を、地図にする。</h2>
+        <p>哲学、歴史、経済、科学、芸術。分野を越えて読むほど、あなたの「知の版図」が広がります。幹となる古典を押さえ、本どうしをつなげて、自分だけの教養を育てよう。</p>
         <button class="btn btn-primary btn-block" data-action="add-book">最初の1冊を登録する</button>
         <button class="btn btn-ghost btn-block" data-action="load-sample">サンプルデータで試す</button>
       </div>`;
@@ -390,11 +390,11 @@ function renderHome() {
   el.innerHTML = `
     <button class="home-realm" data-action="go" data-view="map" aria-label="知の版図 ${world.pct}%。押すと地図を開く">
       <div class="home-realm-head">
-        <span class="tile-label">あなたの知の版図</span>
+        <span class="tile-label">教養を、地図にする。</span>
         <span class="home-realm-pct"><span class="big">${world.pct}</span><small>%</small></span>
       </div>
       ${worldMapSvg({ mini: true })}
-      <span class="home-realm-foot">${(() => { const c = empireCompare(world.conquered); return c.passed ? `${c.passed.name}超え・` : ''; })()}${fieldStats().filter((s) => s.done).length}／18か国に進出・地図を開く →</span>
+      <span class="home-realm-foot"><span class="title-chip">${esc(titleOf(fieldStats().filter((s) => s.done).length).name)}</span>${(() => { const c = empireCompare(world.conquered); return c.passed ? `${c.passed.name}超え・` : ''; })()}${fieldStats().filter((s) => s.done).length}／18か国・地図を開く →</span>
     </button>
     <div class="bento">
       <div class="tile tile-coral">
@@ -676,6 +676,7 @@ function worldStats() {
 // 六角形の地図をSVGで描く。mini=true はホーム用（文字なし・小さめ）
 // fresh：新しく取ったマスを光らせる {分野: 何マス目から新しいか}、freshCastles：新しく建った城の分野
 function worldMapSvg({ mini = false, realms = null, interactive = true, fresh = null, freshCastles = null } = {}) {
+  const own = !realms; // 自分の地図なら「つながりの橋」も描く
   realms = realms || worldStats().realms; // 他の人のプロフィールでは、その人の版図を渡す
   const S = 10; // 六角形1つの大きさ
   const R3 = Math.sqrt(3);
@@ -756,6 +757,18 @@ function worldMapSvg({ mini = false, realms = null, interactive = true, fresh = 
       }
     });
   }
+  // つながりの橋：別の分野の本どうしがつながっていたら、首都と首都を弧で結ぶ
+  const capitalAt = {};
+  for (const c of WORLD) c.cells.forEach(([a, b], i) => { capitalAt[c.fields[i]] = px(2 * a - b, a + 3 * b); });
+  const bridgeSvg = own ? bridges().map(({ a, b }) => {
+    const [x1, y1] = capitalAt[a], [x2, y2] = capitalAt[b];
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1, bend = Math.min(40, len * 0.28);
+    const cx = mx - (dy / len) * bend, cy = my + (dx / len) * bend;
+    return `<path class="bridge" d="M${x1.toFixed(1)},${y1.toFixed(1)} Q${cx.toFixed(1)},${cy.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}"><title>${a} と ${b} のつながり</title></path>
+      <circle class="bridge-end" cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="2.2"/><circle class="bridge-end" cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="2.2"/>`;
+  }).join('') : '';
+
   // 大陸の名前（海の上に）
   const continentLabels = mini ? '' : WORLD.map((c) => {
     const cx = c.cells.map(([a, b]) => px(2 * a - b, a + 3 * b));
@@ -775,9 +788,164 @@ function worldMapSvg({ mini = false, realms = null, interactive = true, fresh = 
       ${hexes}
       <path class="border" d="${borders.join('')}"/>
       <path class="coast" d="${coast.join('')}"/>
+      ${bridgeSvg}
       ${capitals.join('')}
       ${continentLabels}
     </svg>`;
+}
+
+/* ---------- 教養（リベラルアーツ）：称号・知のかたち・教養の入口・つながりの橋 ---------- */
+// 開拓した国の数で上がる「教養の称号」
+const TITLES = [
+  { min: 0, name: 'これから旅立つ人', next: '1冊読み終えると、最初の国に旗が立ちます。' },
+  { min: 1, name: '読書の見習い', next: '3か国に進出すると「知の旅人」に。' },
+  { min: 3, name: '知の旅人', next: '6か国に進出すると「知の探検家」に。' },
+  { min: 6, name: '知の探検家', next: '9か国に進出すると「博学の徒」に。' },
+  { min: 9, name: '博学の徒', next: '12か国に進出すると「教養人」に。' },
+  { min: 12, name: '教養人', next: '15か国に進出すると「博識家（ポリマス）」に。' },
+  { min: 15, name: '博識家（ポリマス）', next: '全18か国に進出すると「知の皇帝」に。' },
+  { min: 18, name: '知の皇帝', next: '知の世界を統一しました。あとは、それぞれの国を深めていこう。' },
+];
+
+// 分野ごとの「教養の入口」：入門書・古典の一例（すべて幹＝入門・古典として登録）
+const STARTERS = {
+  '物理学・宇宙': [['ホーキング、宇宙を語る', 'スティーヴン・ホーキング'], ['宇宙は何でできているのか', '村山斉'], ['物理学とは何だろうか', '朝永振一郎']],
+  '生物・進化': [['利己的な遺伝子', 'リチャード・ドーキンス'], ['種の起源', 'チャールズ・ダーウィン'], ['生物と無生物のあいだ', '福岡伸一']],
+  '化学・素材': [['化学の歴史', 'アイザック・アシモフ'], ['人類を変えた素晴らしき10の材料', 'マーク・ミーオドヴニク'], ['元素生活', '寄藤文平']],
+  '数学・統計': [['数学ガール', '結城浩'], ['フェルマーの最終定理', 'サイモン・シン'], ['統計学が最強の学問である', '西内啓']],
+  'コンピュータ・AI': [['人工知能は人間を超えるか', '松尾豊'], ['教養としてのコンピューターサイエンス講義', 'ブライアン・カーニハン'], ['コンピュータはなぜ動くのか', '矢沢久雄']],
+  '工学・エネルギー': [['失敗学のすすめ', '畑村洋太郎'], ['エネルギーをめぐる旅', '古舘恒介'], ['テクノロジーとイノベーション', 'W・ブライアン・アーサー']],
+  '経済学': [['国富論', 'アダム・スミス'], ['21世紀の資本', 'トマ・ピケティ'], ['ヤバい経済学', 'スティーヴン・D・レヴィット']],
+  '金融・投資': [['ウォール街のランダム・ウォーカー', 'バートン・マルキール'], ['敗者のゲーム', 'チャールズ・エリス'], ['お金は寝かせて増やしなさい', '水瀬ケンイチ']],
+  '経営・起業': [['マネジメント［エッセンシャル版］', 'P・F・ドラッカー'], ['イノベーションのジレンマ', 'クレイトン・クリステンセン'], ['ビジョナリー・カンパニー', 'ジム・コリンズ']],
+  '心理学・認知科学': [['夜と霧', 'ヴィクトール・E・フランクル'], ['ファスト&スロー', 'ダニエル・カーネマン'], ['影響力の武器', 'ロバート・B・チャルディーニ']],
+  '社会学・人類学': [['社会学入門', '見田宗介'], ['菊と刀', 'ルース・ベネディクト'], ['悲しき熱帯', 'クロード・レヴィ＝ストロース']],
+  '政治・公共政策': [['君主論', 'ニッコロ・マキャヴェリ'], ['民主主義とは何か', '宇野重規'], ['これからの「正義」の話をしよう', 'マイケル・サンデル']],
+  '歴史': [['歴史とは何か', 'E・H・カー'], ['銃・病原菌・鉄', 'ジャレド・ダイアモンド'], ['サピエンス全史', 'ユヴァル・ノア・ハラリ']],
+  '哲学・倫理': [['ソクラテスの弁明', 'プラトン'], ['ソフィーの世界', 'ヨースタイン・ゴルデル'], ['哲学と宗教全史', '出口治明']],
+  '宗教': [['ブッダのことば', '中村元（訳）'], ['ふしぎなキリスト教', '橋爪大三郎・大澤真幸'], ['宗教の起源', 'ロビン・ダンバー']],
+  '文学・小説': [['こころ', '夏目漱石'], ['罪と罰', 'フョードル・ドストエフスキー'], ['百年の孤独', 'ガブリエル・ガルシア＝マルケス']],
+  '芸術・デザイン': [['美術の物語', 'E・H・ゴンブリッチ'], ['誰のためのデザイン？', 'D・A・ノーマン'], ['13歳からのアート思考', '末永幸歩']],
+  '医学・健康': [['感染症の世界史', '石弘之'], ['がん‐4000年の歴史', 'シッダールタ・ムカジー'], ['スタンフォード式 最高の睡眠', '西野精治']],
+};
+
+function titleOf(countries) {
+  return [...TITLES].reverse().find((t) => countries >= t.min);
+}
+
+// 知のかたち：幅（進出した国の数）と深さ（いちばん読んだ分野の冊数）から、教養のタイプを決める
+function knowledgeShape() {
+  const counts = fieldStats().map((s) => ({ field: s.field, n: s.done })).sort((a, b) => b.n - a.n);
+  const breadth = counts.filter((c) => c.n > 0).length;
+  const d1 = counts[0].n, d2 = counts[1].n;
+  let type;
+  if (!breadth) type = { id: 'none', name: 'まだ形がない', desc: '読み終えた本が増えると、あなたの知のかたちが見えてきます。', next: 'まずは気になる分野の「幹」の本から1冊。' };
+  else if (breadth >= 4 && d1 >= 4 && d2 >= 4) type = { id: 'pi', name: 'π型', desc: '幅広い教養に、2本の深い柱。分野をまたいで新しい発想を生み出せる形です。', next: `3本目の柱を育てるか、まだ霧の中の国へ。` };
+  else if (breadth >= 4 && d1 >= 4) type = { id: 't', name: 'T型', desc: `幅広い教養と、1つの得意分野（${counts[0].field}）。リベラルアーツの理想とされる形です。`, next: `2本目の柱を育てるとπ型に。候補：${counts[1].n ? counts[1].field : '気になる分野'}` };
+  else if (breadth <= 2 && d1 >= 3) type = { id: 'i', name: 'I型（スペシャリスト）', desc: `${counts[0].field}を深く掘り下げています。`, next: '別の大陸の「幹」の本を読むと、T型に近づきます。' };
+  else if (breadth >= 6 && d1 <= 2) type = { id: 'flat', name: '一型（ジェネラリスト）', desc: 'たくさんの分野に足跡があります。知の地図が広い人です。', next: `1つの分野を4冊まで深めるとT型に。候補：${counts[0].field}` };
+  else type = { id: 'sprout', name: '教養の芽', desc: '幅と深さが、これから伸びていく段階です。', next: breadth < 4 ? `あと${4 - breadth}か国に進出すると、幅が出てきます。` : `${counts[0].field}をあと${4 - d1}冊読むと、T型の柱が立ちます。` };
+  return { counts, breadth, depth: d1, type, title: titleOf(breadth) };
+}
+
+// 知のシルエット：冊数の多い分野ほど真ん中に、高く並べる
+function silhouetteSvg(counts) {
+  const order = [];
+  counts.forEach((c, i) => (i % 2 ? order.push(c) : order.unshift(c)));
+  const W = 340, H = 110, base = 92, bw = W / 18;
+  const max = Math.max(4, ...counts.map((c) => c.n));
+  const bars = order.map((c, i) => {
+    const h = c.n ? Math.max(6, (c.n / max) * 80) : 3;
+    return `<rect x="${(i * bw + 1.5).toFixed(1)}" y="${(base - h).toFixed(1)}" width="${(bw - 3).toFixed(1)}" height="${h.toFixed(1)}" rx="3" style="fill:${c.n ? FIELD_COLORS[c.field] : 'var(--surface-2)'}"><title>${c.field}：${c.n}冊</title></rect>`;
+  }).join('');
+  return `<svg class="silhouette" viewBox="0 0 ${W} ${H}" role="img" aria-label="分野ごとの読了冊数を、多い分野ほど中央に並べた図">
+      <line x1="0" x2="${W}" y1="${base + 0.5}" y2="${base + 0.5}" class="sil-base"/>
+      ${bars}
+      <text x="0" y="${H - 2}" class="sil-label">広さ →</text><text x="${W}" y="${H - 2}" class="sil-label" text-anchor="end">← 広さ</text>
+      <text x="${W / 2}" y="10" class="sil-label" text-anchor="middle">↑ 深さ</text>
+    </svg>`;
+}
+
+function bridgeCardHtml() {
+  const list = bridges();
+  return `
+    <section class="card bridge-card">
+      <div class="card-head"><h3>つながりの橋</h3><span class="title-chip">${list.length}本</span></div>
+      <p class="shape-desc">教養の本当の力は、別々の分野の知識がつながったときに生まれます。読了したときの感想で「つながっている本」を選ぶと、2つの国の間に橋が架かります。</p>
+      ${list.length ? `<ul class="bridge-list">${list.map((x) => `<li><i style="--cover:${FIELD_COLORS[x.a]}"></i>${esc(x.a)}<span>⇄</span><i style="--cover:${FIELD_COLORS[x.b]}"></i>${esc(x.b)}</li>`).join('')}</ul>`
+        : '<p class="empty-small">まだ橋はありません。たとえば「歴史の本」と「経済の本」がつながったら、それが最初の橋です。</p>'}
+    </section>`;
+}
+
+function shapeCardHtml() {
+  const k = knowledgeShape();
+  return `
+    <section class="card shape-card">
+      <div class="card-head"><h3>知のかたち</h3><span class="title-chip">${esc(k.title.name)}</span></div>
+      ${silhouetteSvg(k.counts)}
+      <div class="shape-type">
+        <span class="shape-name">${esc(k.type.name)}</span>
+        <span class="shape-meta">広さ ${k.breadth}か国・深さ ${k.depth}冊</span>
+      </div>
+      <p class="shape-desc">${esc(k.type.desc)}</p>
+      <p class="shape-next"><strong>次の一歩：</strong>${esc(k.type.next)}</p>
+      <p class="field-hint">${esc(k.title.next)}</p>
+    </section>`;
+}
+
+// つながりの橋：別の分野の本どうしのつながり（重複なし）
+function bridges() {
+  const seen = new Map();
+  for (const b of data.books) {
+    for (const id of b.links || []) {
+      const o = bookById(id);
+      if (!o || !b.field || !o.field || o.field === b.field) continue;
+      const key = [b.field, o.field].sort().join('|');
+      seen.set(key, (seen.get(key) || 0) + 1);
+    }
+  }
+  return [...seen.entries()].map(([key, n]) => { const [a, b] = key.split('|'); return { a, b, n: n / 2 }; });
+}
+
+// 教養の入口：おすすめの本を「欲しい」に追加（ネットで表紙やページ数を探す）
+async function addStarter(field, i, btn) {
+  const [title, author] = STARTERS[field][i];
+  if (data.books.some((b) => mainTitle(b.title).replace(/\s/g, '') === title.replace(/\s/g, ''))) { toast('もう本棚にあります'); return; }
+  btn.disabled = true;
+  btn.textContent = '追加中…';
+  let r = null;
+  try {
+    const found = await findBooks(`${title} ${author.split(/[・（]/)[0]}`);
+    r = found.results.find((x) => x.title.replace(/\s/g, '').includes(title.replace(/\s/g, ''))) || null;
+  } catch (e) { /* 電波がなければ、題名と著者だけで登録 */ }
+  data.books.push({
+    id: newId(), createdAt: new Date().toISOString(), title, author,
+    field, totalPages: parseInt(r?.pages, 10) || 250, pagesGuessed: !r?.pages,
+    status: 'wish', position: 'trunk', lang: 'ja', finishedAt: null,
+    price: parseInt(r?.price, 10) || null, coverUrl: r?.coverUrl || '', coverData: '', isbn: r?.isbn || '',
+  });
+  save();
+  btn.textContent = '追加しました';
+  toast(`『${title}』を「欲しい」に追加しました`);
+  render();
+}
+
+function startersHtml(field) {
+  const list = STARTERS[field] || [];
+  if (!list.length) return '';
+  const owned = (t) => data.books.some((b) => mainTitle(b.title).replace(/\s/g, '') === t.replace(/\s/g, ''));
+  return `
+    <div class="section starters">
+      <h4 class="section-title">教養の入口</h4>
+      <p class="field-hint">この分野の土台になる入門書・古典の一例です。読むと首都に城が建ちます。</p>
+      <div class="list">${list.map(([t, a], i) => `
+        <div class="starter">
+          ${coverHtml({ title: t, author: a, field, position: 'trunk' }, 'xs')}
+          <div class="log-main"><span class="log-book">『${esc(t)}』</span><span class="log-meta">${esc(a)}</span></div>
+          ${owned(t) ? '<span class="badge badge-done">本棚にあり</span>'
+            : `<button class="btn btn-ghost btn-small" data-action="add-starter" data-field="${esc(field)}" data-i="${i}">欲しいに追加</button>`}
+        </div>`).join('')}</div>
+    </div>`;
 }
 
 /* ---------- 知の地図 ---------- */
@@ -813,6 +981,7 @@ function renderMap() {
   const diff = seen ? realmDiff(seen) : null;
   const ranking = Object.values(world.realms).filter((r) => r.conquered).sort((a, b) => b.conquered - a.conquered || b.done - a.done);
   el.innerHTML = `
+    <p class="motto">教養を、地図にする。</p>
     <section class="realm-hero">
       <div class="realm-head">
         <div><span class="tile-label">あなたの知の版図</span>
@@ -830,8 +999,11 @@ function renderMap() {
         <span><i class="lg lg-won"></i>制覇した領土</span><span><i class="lg lg-front"></i>最前線（読書中）</span>
         <span><i class="lg lg-plan"></i>予定地（積読）</span><span><i class="lg lg-wild"></i>未開の地</span>
         <span><svg class="lg-castle" viewBox="-6 -5 12 10" aria-hidden="true"><path class="castle" d="M-5,4v-6h2v2h2v-3h2v3h2v-2h2v6z"/></svg>城（幹を読了）</span>
+        <span><i class="lg lg-bridge"></i>つながりの橋</span>
       </div>
     </section>
+    ${shapeCardHtml()}
+    ${bridgeCardHtml()}
     ${empireHtml(world.conquered)}
     ${ranking.length ? `<section class="card">
       <div class="card-head"><h3>領土の広い国</h3><span class="field-hint">${world.conquered}／${TOTAL_HEX}マス</span></div>
@@ -868,6 +1040,7 @@ function openFieldSheet(field) {
             <span class="shelf-title">${esc(b.title)}</span>
             <span class="badge ${b.status === 'done' ? 'badge-done' : ''}">${labelOf(STATUSES, b.status)}</span></button>`).join('')}</div>`
         : '<p class="empty-small">この分野の本はまだありません。</p>'}
+      ${startersHtml(field)}
       <button class="btn btn-primary btn-block" data-action="add-book" data-field="${esc(field)}">＋ この分野の本を登録</button>
     </div>`, 'detail');
 }
@@ -1855,6 +2028,10 @@ function buildMarkdown() {
   L.push(`- 読了：${done.length}冊（${now.getFullYear()}年：${yearGoalInfo().done}冊／目標${data.settings.yearGoal}冊）`);
   L.push(`- 総読書時間：${fmtMinutes(totalMin)}、総ページ：${totalPages}ページ、平均の速さ：時速${speedOf(totalPages, totalMin)}ページ`);
   L.push(`- 開拓した分野：${stats.filter((s) => s.done).length}／18分野、幹（入門・古典）を読んだ分野：${stats.filter((s) => s.trunkDone).length}`);
+  const ks = knowledgeShape();
+  L.push(`- 教養の称号：${ks.title.name}／知のかたち：${ks.type.name}（広さ${ks.breadth}か国・深さ${ks.depth}冊）`);
+  const br = bridges();
+  L.push(`- 分野を越えたつながり：${br.length ? br.map((x) => `${x.a}⇄${x.b}`).join('、') : 'まだなし'}`);
   L.push('- 分類の考え方：「幹」＝その分野の入門・古典、「枝」＝応用、「葉」＝専門・細部', '');
   L.push('## 分野別の読了冊数', '', '| 分野 | 読了 | 読書中 | 幹を読了 |', '|---|---|---|---|');
   for (const s of stats) L.push(`| ${s.field} | ${s.done} | ${s.reading} | ${s.trunkDone ? '○' : '—'} |`);
@@ -1888,7 +2065,7 @@ function buildMarkdown() {
     L.push('');
   }
   L.push('---', '');
-  L.push('この記録をもとに、次に読む本を3〜5冊提案してください。');
+  L.push('私はリベラルアーツ（幅広い教養）を身につけたいと思っています。この記録をもとに、次に読む本を3〜5冊提案してください。');
   L.push('- 0冊の分野や「幹」がまだの分野を優先して、知識の地図の空白を埋めたいです');
   L.push('- 私の感想やメモから、興味の方向性も読み取ってください');
   L.push('- それぞれ、分野・幹/枝/葉のどれにあたるか・選んだ理由を添えてください');
@@ -2461,6 +2638,7 @@ document.addEventListener('click', (e) => {
     case 'add-book': openBookForm(null, el.dataset.field || ''); break;
     case 'book-search': searchBooks(); break;
     case 'scan': openScanner(el.dataset.mode || 'single'); break;
+    case 'add-starter': addStarter(el.dataset.field, Number(el.dataset.i), el); break;
     case 'pick-result': pickResult(Number(el.dataset.i)); break;
     case 'remove-cover': formCover = { ...formCover, coverUrl: '', coverData: '' }; refreshCoverPreview(); break;
     case 'open-field': openFieldSheet(el.dataset.field); break;
@@ -2598,7 +2776,7 @@ document.addEventListener('error', (e) => {
 }, true);
 
 // 新しいバージョンが公開されていないか確認する（スマホが古いページを覚えていることがあるため）
-const APP_VERSION = 15; // 更新するたびに version.json と一緒に上げる
+const APP_VERSION = 16; // 更新するたびに version.json と一緒に上げる
 async function checkUpdate() {
   try {
     const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });

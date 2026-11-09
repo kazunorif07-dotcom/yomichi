@@ -667,6 +667,29 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .switch-row input { width: 22px; height: 22px; accent-color: var(--blue); }
 .week-more { align-self: flex-end; }
 
+/* ---------- 教養（称号・知のかたち・橋・入口） ---------- */
+.motto { font-size: 13px; font-weight: 900; letter-spacing: .3em; color: var(--blue); text-align: center; margin-top: 2px; }
+.title-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 900; padding: 3px 9px; border-radius: 99px; background: var(--ink); color: var(--bg); white-space: nowrap; letter-spacing: .02em; }
+.title-chip.small { font-size: 9.5px; padding: 2px 7px; flex: none; }
+.home-realm-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.silhouette { display: block; width: 100%; height: auto; }
+.silhouette .sil-base { stroke: var(--line); stroke-width: 1; }
+.silhouette .sil-label { fill: var(--muted); font-size: 9px; font-family: var(--font-body); font-weight: 700; }
+.shape-type { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.shape-name { font-family: var(--font-num); font-weight: 700; font-size: 26px; letter-spacing: -.03em; }
+.shape-meta { font-size: 12px; font-weight: 700; color: var(--muted); }
+.shape-desc { font-size: 14px; line-height: 1.8; }
+.shape-next { font-size: 14px; line-height: 1.7; background: var(--surface-2); border-radius: 12px; padding: 10px 12px; }
+.shape-next strong { color: var(--blue); }
+.worldmap .bridge { fill: none; stroke: var(--butter); stroke-width: 2.2; stroke-dasharray: 5 3; stroke-linecap: round; filter: drop-shadow(0 0 1.5px rgb(0 0 0 / .45)); pointer-events: none; }
+.worldmap .bridge-end { fill: var(--butter); stroke: rgb(0 0 0 / .5); stroke-width: .6; pointer-events: none; }
+.lg-bridge { width: 18px !important; height: 0 !important; border-top: 2.5px dashed var(--butter) !important; border-radius: 0 !important; background: none !important; clip-path: none !important; }
+.bridge-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.bridge-list li { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; background: var(--surface-2); border-radius: 12px; padding: 8px 12px; flex-wrap: wrap; }
+.bridge-list li span { color: var(--ochre, var(--coral)); font-weight: 900; margin-inline: 4px; }
+.bridge-list i { width: 12px; height: 14px; background: var(--cover); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.starter { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; background: var(--surface); border-radius: 14px; padding: 10px 12px; }
+
 /* ---------- 新しいバージョンのお知らせ ---------- */
 .update-bar {
   position: fixed; z-index: 45; left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));

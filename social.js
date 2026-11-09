@@ -145,6 +145,8 @@ async function syncProfile() {
     weekMinutes: summarize(weekStart(new Date()), 7).minutes,
     realm, realmPct: world.pct, countries: Object.values(world.realms).filter((r) => r.conquered).length,
     empire: emp.passed ? emp.passed.name : '',
+    // 教養の称号と知のかたち
+    title: knowledgeShape().title.name, shape: knowledgeShape().type.name,
     updatedAt: serverTimestamp(),
   };
   await setDoc(doc(db, 'users', S.user.uid), patch, { merge: true });
@@ -168,6 +170,7 @@ async function afterSession({ book, minutes, pages, finished }) {
     if (sharing()) {
       await addDoc(collection(db, 'posts'), {
         uid: S.user.uid, name: S.profile.name, photo: S.profile.photo || '',
+        title: knowledgeShape().title.name,
         kind: finished ? 'finish' : 'read',
         // 写真で撮った表紙は大きいので共有しない（ネットの表紙だけ）
         book: { title: book.title, author: book.author || '', field: book.field || '', position: book.position || '', cover: /^https:/.test(book.coverUrl || '') ? book.coverUrl : '' },
@@ -227,6 +230,7 @@ function postHtml(p) {
       <div class="post-body">
         <div class="post-head">
           <button class="post-name" data-action="sx-profile" data-uid="${esc(p.uid)}">${esc(p.name)}</button>
+          ${p.title ? `<span class="title-chip small">${esc(p.title)}</span>` : ''}
           <span class="post-time">${timeAgo(tsMs(p.createdAt))}</span>
         </div>
         <p class="post-text">${text}</p>
@@ -432,6 +436,7 @@ async function openProfile(uid) {
           ${avatarHtml(u.name, u.photo, 64)}
           <div>
             <h3 class="detail-title">${esc(u.name)}</h3>
+            ${u.title ? `<span class="title-chip">${esc(u.title)}${u.shape ? `・${esc(u.shape)}` : ''}</span>` : ''}
             <span class="now-sub">フォロワー ${followers.data().count}・フォロー中 ${followingCount.data().count}</span>
           </div>
         </div>
