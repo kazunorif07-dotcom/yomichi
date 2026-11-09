@@ -19,6 +19,8 @@
   --cover-ink: #FFFFFF;   /* 自動生成の表紙の文字（表紙は両テーマ共通の色） */
   --danger: #C73A24;
   --shade: rgb(20 23 28 / .14);
+  /* 地図の色 */
+  --sea: #CFDCE8; --wave: #B9CBDB; --land: #F2EEE3; --coast: #5E7488; --border-line: rgb(21 23 28 / .28); --sea-text: #4F6579;
 
   /* 書体：雑誌のような組み合わせ。見出し＝明朝、数字＝細い斜体のセリフ、本文＝すっきりしたゴシック */
   --font-display: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif;
@@ -36,6 +38,7 @@
     --butter: #FFD84F; --butter-ink: #2A2100;
     --mint: #3FD69C; --mint-ink: #052117;
     --danger: #FF7C66; --shade: rgb(0 0 0 / .4);
+    --sea: #0F1B2A; --wave: #1A2A3D; --land: #2B3038; --coast: #6F8AA6; --border-line: rgb(0 0 0 / .45); --sea-text: #8FA6BE;
     color-scheme: dark;
   }
 }
@@ -46,6 +49,7 @@
   --butter: #FFD84F; --butter-ink: #2A2100;
   --mint: #3FD69C; --mint-ink: #052117;
   --danger: #FF7C66; --shade: rgb(0 0 0 / .4);
+  --sea: #0F1B2A; --wave: #1A2A3D; --land: #2B3038; --coast: #6F8AA6; --border-line: rgb(0 0 0 / .45); --sea-text: #8FA6BE;
   color-scheme: dark;
 }
 
@@ -555,6 +559,47 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .teaser-text .big { font-size: 30px; }
 .teaser-go { font-size: 13px; font-weight: 900; color: var(--blue); }
 
+/* ---------- 知の版図（世界地図） ---------- */
+.realm-hero { background: var(--surface); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.realm-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.realm-head .tile-label { color: var(--muted); }
+.realm-nums { display: flex; gap: 16px; }
+.realm-nums .big { font-size: 34px; }
+.realm-nums small { font-size: 12px; font-weight: 700; color: var(--muted); margin-left: 2px; }
+.map-frame { border-radius: 16px; overflow: hidden; margin-inline: -4px; }
+.worldmap { display: block; width: 100%; height: auto; }
+.worldmap .sea { fill: var(--sea); }
+.worldmap .wave { stroke: var(--wave); stroke-width: 1; }
+.worldmap .hx { stroke: var(--land); stroke-width: .5; cursor: pointer; transform-box: fill-box; transform-origin: center; }
+.worldmap .hx.wild { fill: var(--land); stroke: var(--sea); stroke-opacity: .5; }
+.worldmap .hx.plan { fill: color-mix(in srgb, var(--cover) 22%, var(--land)); stroke: var(--sea); stroke-opacity: .5; }
+.worldmap .hx.front { fill: color-mix(in srgb, var(--cover) 55%, var(--land)); animation: front 1.8s ease-in-out infinite; }
+.worldmap .hx.won { fill: var(--cover); stroke: rgb(255 255 255 / .25); animation: conquer .45s cubic-bezier(.2, .9, .3, 1.3) both; }
+.worldmap .border { fill: none; stroke: var(--border-line); stroke-width: 1.1; stroke-linecap: round; pointer-events: none; }
+.worldmap .coast { fill: none; stroke: var(--coast); stroke-width: 1.5; stroke-linecap: round; pointer-events: none; }
+.worldmap .coast-glow { fill: none; stroke: var(--land); stroke-width: 7; opacity: .35; stroke-linecap: round; }
+.worldmap .castle, .lg-castle .castle { fill: var(--butter); stroke: rgb(0 0 0 / .55); stroke-width: .5; stroke-linejoin: round; pointer-events: none; }
+.worldmap .realm-name { font-family: var(--font-body); font-size: 5.6px; font-weight: 700; fill: var(--muted); pointer-events: none; }
+.worldmap .realm-name.on { fill: #FFFFFF; font-weight: 900; }
+.worldmap .continent-name { font-family: var(--font-display); font-size: 8.5px; font-weight: 800; letter-spacing: .25em; fill: var(--sea-text); pointer-events: none; }
+@keyframes conquer { from { opacity: 0; transform: scale(.4); } }
+@keyframes front { 50% { opacity: .55; } }
+.legend-map .lg { width: 13px; height: 13px; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); border: 0; border-radius: 0; }
+.lg-won { background: var(--blue); }
+.lg-front { background: color-mix(in srgb, var(--blue) 55%, var(--land)); }
+.legend-map .lg-plan { background: color-mix(in srgb, var(--blue) 22%, var(--land)); }
+.lg-wild { background: var(--land); box-shadow: inset 0 0 0 1px var(--line); }
+.lg-castle { width: 16px; height: 14px; }
+.home-realm { display: flex; flex-direction: column; gap: 8px; width: 100%; background: var(--surface); border: 0; border-radius: var(--radius); padding: 14px; text-align: left; cursor: pointer; }
+.home-realm-head { display: flex; justify-content: space-between; align-items: baseline; }
+.home-realm-head .tile-label { color: var(--muted); }
+.home-realm-pct .big { font-size: 40px; }
+.home-realm-pct small { font-size: 14px; font-weight: 700; color: var(--muted); }
+.home-realm .worldmap { border-radius: 14px; }
+.home-realm .worldmap .hx { pointer-events: none; }
+.home-realm-foot { font-size: 12px; font-weight: 700; color: var(--blue); text-align: right; }
+
 @media (prefers-reduced-motion: reduce) {
+  .worldmap .hx.won, .worldmap .hx.front { animation: none; }
   .sheet, .ring-bar, .btn { transition: none; }
 }

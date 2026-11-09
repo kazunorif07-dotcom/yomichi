@@ -385,7 +385,16 @@ function renderHome() {
   const reading = data.books.filter((b) => b.status === 'reading');
   const recent = sortedSessions().slice(0, 4);
 
+  const world = worldStats();
   el.innerHTML = `
+    <button class="home-realm" data-action="go" data-view="map" aria-label="知の版図 ${world.pct}%。押すと地図を開く">
+      <div class="home-realm-head">
+        <span class="tile-label">あなたの知の版図</span>
+        <span class="home-realm-pct"><span class="big">${world.pct}</span><small>%</small></span>
+      </div>
+      ${worldMapSvg({ mini: true })}
+      <span class="home-realm-foot">${fieldStats().filter((s) => s.done).length}／18か国に進出・地図を開く →</span>
+    </button>
     <div class="bento">
       <div class="tile tile-coral">
         <span class="tile-label">連続読書</span>
@@ -520,6 +529,139 @@ function renderHistory() {
       </div>`).join('')}`;
 }
 
+/* ---------- 知の版図（六角形の世界地図） ---------- */
+// 18分野がそれぞれ「国」。国は六角形7マス（首都＋まわり6マス）。
+// 本を読了するたびに、首都から外側へ領土が広がる。幹の本を読むと首都に城が建つ。
+const SHORT = {
+  '物理学・宇宙': '物理', '生物・進化': '生物', '化学・素材': '化学', '数学・統計': '数学', 'コンピュータ・AI': 'AI',
+  '工学・エネルギー': '工学', '経済学': '経済', '金融・投資': '金融', '経営・起業': '経営', '心理学・認知科学': '心理',
+  '社会学・人類学': '社会', '政治・公共政策': '政治', '歴史': '歴史', '哲学・倫理': '哲学', '宗教': '宗教',
+  '文学・小説': '文学', '芸術・デザイン': '芸術', '医学・健康': '医学',
+};
+// 首都から広がる順番（首都→右→右上→左上→左→左下→右下）。六角形の座標は「軸座標(q, r)」。
+const FLOWER = [[0, 0], [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+const HEX_DIRS = FLOWER.slice(1);
+// 大陸ごとの国の配置（格子の番号 a, b）。国どうしがすき間なく並び、大陸の間は海になる。
+const WORLD = [
+  { name: '人文・芸術', cells: [[0, 0], [1, 0], [0, 1], [1, 1], [-1, 2]], fields: ['哲学・倫理', '歴史', '宗教', '文学・小説', '芸術・デザイン'] },
+  { name: '自然科学', cells: [[4, -1], [5, -1], [3, 0], [4, 0], [3, 1]], fields: ['物理学・宇宙', '数学・統計', '化学・素材', '生物・進化', '医学・健康'] },
+  { name: '社会・人間', cells: [[0, 3], [1, 3], [-1, 4], [0, 4], [1, 4], [-1, 5]], fields: ['心理学・認知科学', '社会学・人類学', '政治・公共政策', '経済学', '経営・起業', '金融・投資'] },
+  { name: 'テクノロジー', cells: [[3, 3], [4, 3]], fields: ['コンピュータ・AI', '工学・エネルギー'] },
+];
+const TOTAL_HEX = FIELDS.length * 7;
+
+// 国ごとの状態：何マス制覇したか、城があるか、最前線（読書中）か、予定地（積読）か
+function realmOf(s) {
+  const conquered = s.done ? Math.min(7, 1 + s.done) : 0;
+  return { conquered, castle: s.trunkDone, front: s.reading > 0 && conquered < 7, planned: !s.done && (s.tsundoku > 0 || s.reading > 0) };
+}
+
+function worldStats() {
+  const stats = fieldStats();
+  const realms = Object.fromEntries(stats.map((s) => [s.field, { ...s, ...realmOf(s) }]));
+  const conquered = Object.values(realms).reduce((a, r) => a + r.conquered, 0);
+  return { realms, conquered, pct: Math.round((conquered / TOTAL_HEX) * 100) };
+}
+
+// 六角形の地図をSVGで描く。mini=true はホーム用（文字なし・小さめ）
+function worldMapSvg({ mini = false } = {}) {
+  const { realms } = worldStats();
+  const S = 10; // 六角形1つの大きさ
+  const R3 = Math.sqrt(3);
+  const px = (q, r) => [S * R3 * (q + r / 2), S * 1.5 * r];
+  const corners = (x, y) => Array.from({ length: 6 }, (_, i) => {
+    const a = (Math.PI / 180) * (60 * i - 30);
+    return [x + S * Math.cos(a), y + S * Math.sin(a)];
+  });
+  const owner = new Map(); // "q,r" → 分野
+  const tiles = [];
+  for (const c of WORLD) {
+    c.cells.forEach(([a, b], i) => {
+      const field = c.fields[i];
+      const cq = 2 * a - b, cr = a + 3 * b; // 国の首都の座標
+      FLOWER.forEach(([dq, dr], k) => {
+        const q = cq + dq, r = cr + dr;
+        owner.set(`${q},${r}`, field);
+        tiles.push({ q, r, field, k, continent: c.name });
+      });
+    });
+  }
+  const xs = [], ys = [];
+  for (const t of tiles) { const [x, y] = px(t.q, t.r); xs.push(x); ys.push(y); }
+  const pad = mini ? 8 : 26;
+  const minX = Math.min(...xs) - S - pad, maxX = Math.max(...xs) + S + pad;
+  const minY = Math.min(...ys) - S - pad, maxY = Math.max(...ys) + S + pad;
+
+  const hexes = tiles.map((t) => {
+    const realm = realms[t.field];
+    const [x, y] = px(t.q, t.r);
+    const pts = corners(x, y).map((p) => p.map((n) => n.toFixed(1)).join(',')).join(' ');
+    const won = t.k < realm.conquered;
+    const front = !won && realm.front && t.k === realm.conquered;
+    const cls = won ? 'hx won' : front ? 'hx front' : realm.planned ? 'hx plan' : 'hx wild';
+    const delay = won ? `style="--cover:${FIELD_COLORS[t.field]};animation-delay:${(t.k * 60)}ms"` : `style="--cover:${FIELD_COLORS[t.field]}"`;
+    return `<polygon class="${cls}" points="${pts}" ${delay} data-action="open-field" data-field="${esc(t.field)}"/>`;
+  }).join('');
+
+  // 国境と海岸線：となりのマスが別の国（または海）なら、その辺に線を引く
+  const borders = [], coast = [];
+  for (const t of tiles) {
+    const [x, y] = px(t.q, t.r);
+    const cs = corners(x, y);
+    HEX_DIRS.forEach(([dq, dr]) => {
+      const n = owner.get(`${t.q + dq},${t.r + dr}`);
+      if (n === t.field) return;
+      // 方向(dq,dr)に向いた辺の両端の角を選ぶ
+      const [nx, ny] = px(t.q + dq, t.r + dr);
+      const ang = Math.atan2(ny - y, nx - x);
+      const pick = cs.map((p, i) => ({ p, d: Math.abs(Math.atan2(Math.sin(Math.atan2(p[1] - y, p[0] - x) - ang), Math.cos(Math.atan2(p[1] - y, p[0] - x) - ang))) }))
+        .sort((m, n2) => m.d - n2.d).slice(0, 2).map((m) => m.p);
+      const seg = `M${pick[0][0].toFixed(1)},${pick[0][1].toFixed(1)}L${pick[1][0].toFixed(1)},${pick[1][1].toFixed(1)}`;
+      (n ? borders : coast).push(seg);
+    });
+  }
+
+  // 首都：城（幹を読了）または旗、国の名前
+  const capitals = [];
+  for (const c of WORLD) {
+    c.cells.forEach(([a, b], i) => {
+      const field = c.fields[i];
+      const realm = realms[field];
+      const [x, y] = px(2 * a - b, a + 3 * b);
+      if (realm.castle) {
+        // 城は首都のマスの上半分に小さく、国名はその下に
+        capitals.push(`<path class="castle" d="M${x - 3.6},${y - 1}v-4h1.4v1.4h1.5v-2.2h1.4v2.2h1.5v-1.4h1.4v4z" />`);
+      }
+      if (!mini) {
+        const label = SHORT[field];
+        capitals.push(`<text class="realm-name ${realm.conquered ? 'on' : ''}" x="${x}" y="${y + (realm.castle ? 5.6 : 2.3)}" text-anchor="middle">${label}</text>`);
+      }
+    });
+  }
+  // 大陸の名前（海の上に）
+  const continentLabels = mini ? '' : WORLD.map((c) => {
+    const cx = c.cells.map(([a, b]) => px(2 * a - b, a + 3 * b));
+    const x = cx.reduce((m, p) => m + p[0], 0) / cx.length;
+    const y = Math.min(...cx.map((p) => p[1])) - S * 3.1;
+    return `<text class="continent-name" x="${x}" y="${y}" text-anchor="middle">${c.name}</text>`;
+  }).join('');
+
+  return `<svg class="worldmap ${mini ? 'mini' : ''}" viewBox="${minX.toFixed(0)} ${minY.toFixed(0)} ${(maxX - minX).toFixed(0)} ${(maxY - minY).toFixed(0)}" role="img" aria-label="知の版図の地図">
+      <defs>
+        <pattern id="waves" width="24" height="12" patternUnits="userSpaceOnUse"><path d="M0 8 q6 -4 12 0 t12 0" fill="none" class="wave"/></pattern>
+        <pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" class="hatch"/></pattern>
+      </defs>
+      <rect x="${minX}" y="${minY}" width="${maxX - minX}" height="${maxY - minY}" class="sea"/>
+      <rect x="${minX}" y="${minY}" width="${maxX - minX}" height="${maxY - minY}" fill="url(#waves)"/>
+      <path class="coast-glow" d="${coast.join('')}"/>
+      ${hexes}
+      <path class="border" d="${borders.join('')}"/>
+      <path class="coast" d="${coast.join('')}"/>
+      ${capitals.join('')}
+      ${continentLabels}
+    </svg>`;
+}
+
 /* ---------- 知の地図 ---------- */
 function renderMap() {
   const el = $('#view-map');
@@ -547,19 +689,35 @@ function renderMap() {
       </button>`;
   };
 
+  const world = worldStats();
+  const ranking = Object.values(world.realms).filter((r) => r.conquered).sort((a, b) => b.conquered - a.conquered || b.done - a.done);
   el.innerHTML = `
-    <div class="map-summary">
-      <span class="tile-label">あなたの知の地図</span>
-      <div class="map-big"><span class="big">${explored.length}</span><small>／18分野を開拓</small></div>
-      <div class="coverage" aria-hidden="true">${stats.map((s) => `<i style="--cover:${FIELD_COLORS[s.field]}" class="${s.done ? 'on' : (s.tsundoku || s.reading) ? 'plan' : ''} ${s.trunkDone ? 'trunk' : ''}"></i>`).join('')}</div>
-      <p class="map-note">幹（入門・古典）を読んだ分野は <strong>${trunks}</strong>。
-      ${planned.length ? `積読・読書中で開拓予定の分野は <strong>${planned.length}</strong>。` : ''}
-      ${blanks.length ? `まだ空白：${blanks.slice(0, 3).map((b) => esc(b.field)).join('、')}${blanks.length > 3 ? ` ほか${blanks.length - 3}分野` : ''}` : '全分野に足跡があります！'}</p>
-    </div>
-    <div class="legend-row" aria-label="見かた">
-      <span><i class="lg lg-on"></i>読了あり</span><span><i class="lg lg-plan"></i>予定地（積読・読書中だけ）</span><span><i class="lg lg-off"></i>未開拓</span>
-      <span><span class="trunk-mark on">幹✓</span>入門・古典を読了</span><span>●○○ 1冊／●●○ 2〜3冊／●●● 4冊〜</span>
-    </div>
+    <section class="realm-hero">
+      <div class="realm-head">
+        <div><span class="tile-label">あなたの知の版図</span>
+          <div class="map-big"><span class="big">${world.pct}</span><small>%を制覇</small></div></div>
+        <div class="realm-nums">
+          <span><span class="big">${explored.length}</span><small>／18か国</small></span>
+          <span><span class="big">${trunks}</span><small>城</small></span>
+        </div>
+      </div>
+      <div class="map-frame">${worldMapSvg()}</div>
+      <p class="map-note">本を1冊読み終えるごとに、その分野の国の首都から領土が広がります。幹（入門・古典）を読むと首都に城が建ちます。
+      ${blanks.length ? `<br>まだ霧の中：${blanks.slice(0, 3).map((b) => esc(b.field)).join('、')}${blanks.length > 3 ? ` ほか${blanks.length - 3}か国` : ''}` : ''}</p>
+      <div class="legend-row legend-map" aria-label="見かた">
+        <span><i class="lg lg-won"></i>制覇した領土</span><span><i class="lg lg-front"></i>最前線（読書中）</span>
+        <span><i class="lg lg-plan"></i>予定地（積読）</span><span><i class="lg lg-wild"></i>未開の地</span>
+        <span><svg class="lg-castle" viewBox="-6 -5 12 10" aria-hidden="true"><path class="castle" d="M-5,4v-6h2v2h2v-3h2v3h2v-2h2v6z"/></svg>城（幹を読了）</span>
+      </div>
+    </section>
+    ${ranking.length ? `<section class="card">
+      <div class="card-head"><h3>領土の広い国</h3><span class="field-hint">${world.conquered}／${TOTAL_HEX}マス</span></div>
+      <div class="hbars">${ranking.slice(0, 5).map((r) => `
+        <div class="hbar"><span class="hbar-label">${esc(r.field)}</span>
+          <span class="hbar-track"><i style="width:${(r.conquered / 7) * 100}%;--cover:${FIELD_COLORS[r.field]}"></i></span>
+          <span class="hbar-val num">${r.conquered}/7</span></div>`).join('')}</div>
+    </section>` : ''}
+    <div class="section-head" style="margin-top:6px"><h2 class="section-title">国の一覧</h2></div>
     ${CONTINENTS.map((c) => `
       <section class="section continent">
         <h2 class="section-title">${c.name}<span class="num"> ${c.fields.filter((f) => byField[f].done).length}/${c.fields.length}</span></h2>
@@ -866,12 +1024,13 @@ async function searchBooks() {
   const tasks = {
     google: searchGoogle(isbn ? `isbn:${isbn}` : q),
     ndl: searchNdl(q, isbn),
-    ol: isJapanese ? Promise.resolve([]) : searchOpenLibrary(q, isbn),
   };
+  if (!isJapanese) tasks.ol = searchOpenLibrary(q, isbn);
   const names = Object.keys(tasks);
   const settled = await Promise.allSettled(Object.values(tasks));
   if (seq !== searchSeq) return;
   const got = {};
+  for (const name of ['google', 'ndl', 'ol']) got[name] = [];
   names.forEach((name, i) => { got[name] = settled[i].status === 'fulfilled' ? settled[i].value.map((r) => ({ ...r, src: name })) : []; });
   if (settled.every((s) => s.status === 'rejected')) {
     status.textContent = '本のデータベースに接続できませんでした。電波を確認するか、下に手で入力してください。';
@@ -1254,7 +1413,7 @@ function addSession({ book, date, minutes, startPage, endPage, source }) {
     finished = true;
     book.status = 'done';
     book.finishedAt = date;
-    msg = `読了おめでとう！「${book.title}」を読み終えました`;
+    msg = `読了おめでとう！「${book.field}」の版図が広がりました`;
     party = true;
   } else if (book.status === 'want' || book.status === 'wish' || book.status === 'paused') {
     book.status = 'reading';
