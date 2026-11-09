@@ -667,7 +667,41 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .switch-row input { width: 22px; height: 22px; accent-color: var(--blue); }
 .week-more { align-self: flex-end; }
 
+/* ---------- バーコード読み取り ---------- */
+.scanner { display: flex; flex-direction: column; gap: 12px; }
+.sc-view-wrap { position: relative; border-radius: 18px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; max-width: 100%; }
+.sc-view-wrap.off { display: none; }
+.sc-view, .sc-view video { width: 100% !important; height: 100% !important; object-fit: cover; }
+.sc-view img, .sc-view #qr-shaded-region { display: none !important; }
+.sc-frame { position: absolute; left: 50%; top: 50%; width: min(78%, 280px); height: 34%; transform: translate(-50%, -50%); border: 3px solid var(--butter); border-radius: 12px; box-shadow: 0 0 0 999px rgb(0 0 0 / .35); pointer-events: none; }
+.sc-frame::after { content: ""; position: absolute; left: 6%; right: 6%; top: 50%; height: 2px; background: var(--coral); animation: scanline 1.6s ease-in-out infinite alternate; }
+@keyframes scanline { from { transform: translateY(-28px); } to { transform: translateY(28px); } }
+.sc-status { font-size: 14px; font-weight: 700; }
+.scan-btn { align-self: flex-start; }
+.warn { color: var(--coral); font-weight: 900; }
+
+/* ---------- 版図が広がる瞬間 ---------- */
+.worldmap .hx.won.fresh { stroke: var(--butter); stroke-width: 1.4; animation: claim .7s cubic-bezier(.2, .9, .3, 1.4) both, shine 1.2s ease-in-out 2; }
+.worldmap .castle.fresh { transform-box: fill-box; transform-origin: center bottom; animation: castle-drop .6s cubic-bezier(.3, 1.6, .5, 1) both; }
+@keyframes claim { 0% { opacity: 0; transform: scale(.1); } 60% { opacity: 1; transform: scale(1.3); } 100% { transform: scale(1); } }
+@keyframes shine { 50% { filter: brightness(1.55) drop-shadow(0 0 3px var(--butter)); } }
+@keyframes castle-drop { from { opacity: 0; transform: translateY(-16px) scale(1.6); } }
+.conquest { display: flex; flex-direction: column; gap: 14px; }
+.conquest-banner { background: var(--ink); color: var(--bg); border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; animation: banner-in .6s cubic-bezier(.2, .9, .3, 1.2) both; }
+.conquest-banner .tile-label { color: var(--butter); }
+.conquest-banner strong { font-size: 20px; font-weight: 900; }
+.conquest-banner small { font-size: 12px; opacity: .75; }
+@keyframes banner-in { from { opacity: 0; transform: translateY(-10px) scale(.96); } }
+.conquest-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.conquest-lines li { display: flex; align-items: center; gap: 10px; background: var(--surface); border-radius: 14px; padding: 10px 12px; font-size: 14px; font-weight: 700; }
+.conquest-lines li i { width: 14px; height: 16px; flex: none; background: var(--cover); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.conquest-lines li span { flex: 1; min-width: 0; }
+.conquest-lines strong { font-weight: 900; }
+.conquest-total { text-align: center; font-size: 14px; font-weight: 700; color: var(--muted); }
+.conquest-total .big { font-size: 40px; color: var(--ink); margin-inline: 4px; }
+.fresh-note { font-size: 13px; font-weight: 700; color: var(--blue); }
+
 @media (prefers-reduced-motion: reduce) {
-  .worldmap .hx.won, .worldmap .hx.front { animation: none; }
+  .worldmap .hx.won, .worldmap .hx.front, .worldmap .hx.won.fresh, .worldmap .castle.fresh, .conquest-banner, .sc-frame::after { animation: none; }
   .sheet, .ring-bar, .btn { transition: none; }
 }

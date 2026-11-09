@@ -505,7 +505,12 @@ function renderBooks() {
           ${b.sample ? '<span class="badge badge-sample">サンプル</span>' : ''}
         </button>`).join('')}</div>`
       : `<p class="empty-small">${data.books.length ? 'この状態の本はありません。' : 'まだ本がありません。'}</p>`}
-    <button class="btn btn-primary btn-block" data-action="add-book">＋ 本を登録する</button>
+    <div class="btn-row">
+      <button class="btn btn-primary" data-action="add-book">＋ 本を登録する</button>
+      <button class="btn btn-ghost" data-action="scan" data-mode="stack">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5h3M17 5h3v2M20 17v2h-3M7 19H4v-2M7 9v6M10 9v6M13 9v6M16 9v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        バーコードで積読を登録</button>
+    </div>
     ${data.books.some((b) => b.sample) ? `<button class="btn btn-danger btn-small" data-action="clear-sample">サンプルデータをすべて消す</button>` : ''}`;
 }
 
@@ -612,6 +617,55 @@ function realmOf(s) {
   return { conquered, castle: s.trunkDone, front: s.reading > 0 && conquered < 7, planned: !s.done && (s.tsundoku > 0 || s.reading > 0) };
 }
 
+// 版図の今の状態（国ごとのマス数と、城のある国）
+function realmSnapshot() {
+  const { realms, conquered } = worldStats();
+  const conq = {}, castles = [];
+  for (const [f, r] of Object.entries(realms)) { conq[f] = r.conquered; if (r.castle) castles.push(f); }
+  return { conq, castles, total: conquered };
+}
+
+// 地図を最後に見たときの版図を覚えておく
+function markRealmSeen(snap = realmSnapshot()) {
+  data.settings.seenRealm = snap;
+  save();
+}
+
+// 前の版図（before）と今を比べて、増えた領土・新しい城・超えた帝国を返す
+function realmDiff(before) {
+  const after = realmSnapshot();
+  const fresh = {}, freshCastles = new Set(), lines = [];
+  for (const f of FIELDS) {
+    const b = (before.conq || {})[f] || 0, a = after.conq[f] || 0;
+    if (a > b) { fresh[f] = b; lines.push({ f, b, a }); }
+    if (after.castles.includes(f) && !(before.castles || []).includes(f)) freshCastles.add(f);
+  }
+  const e0 = empireCompare(before.total || 0).passed, e1 = empireCompare(after.total).passed;
+  return { after, fresh, freshCastles, lines, newEmpire: e1 && (!e0 || e1.name !== e0.name) ? e1 : null, changed: lines.length > 0 || freshCastles.size > 0 };
+}
+
+// 「版図が広がった！」の画面。広がっていなければ false を返す
+function openConquest(before, book) {
+  const d = realmDiff(before);
+  if (!d.changed) return false;
+  const pct = Math.round((d.after.total / TOTAL_HEX) * 100);
+  openSheet('版図が広がった！', `
+    <div class="conquest">
+      ${d.newEmpire ? `<div class="conquest-banner"><span class="tile-label">新たな到達点</span><strong>ついに${esc(d.newEmpire.name)}を超えた！</strong><small>${esc(d.newEmpire.era)}・最盛期 約${Math.round(d.newEmpire.km2 * 100).toLocaleString()}万km²</small></div>` : ''}
+      <div class="map-frame">${worldMapSvg({ fresh: d.fresh, freshCastles: d.freshCastles, interactive: false })}</div>
+      <ul class="conquest-lines">
+        ${d.lines.map((l) => `<li><i style="--cover:${FIELD_COLORS[l.f]}"></i><span>「${esc(l.f)}」の国</span><strong class="num">${l.b} → ${l.a}マス</strong></li>`).join('')}
+        ${[...d.freshCastles].map((f) => `<li><svg class="lg-castle" viewBox="-6 -5 12 10" aria-hidden="true"><path class="castle" d="M-5,4v-6h2v2h2v-3h2v3h2v-2h2v6z"/></svg><span>「${esc(f)}」の首都に城が建ちました</span></li>`).join('')}
+      </ul>
+      <p class="conquest-total">知の版図 <span class="big">${pct}</span>%</p>
+      ${book ? `<button class="btn btn-primary btn-block" data-action="review" data-id="${book.id}">感想とつながりを書く</button>` : ''}
+      <button class="btn btn-ghost btn-block" data-action="close-sheet">閉じる</button>
+    </div>`, 'conquest');
+  markRealmSeen(d.after);
+  try { navigator.vibrate?.([30, 60, 30, 60, 80]); } catch (e) { /* 対応していない端末は無視 */ }
+  return true;
+}
+
 function worldStats() {
   const stats = fieldStats();
   const realms = Object.fromEntries(stats.map((s) => [s.field, { ...s, ...realmOf(s) }]));
@@ -620,7 +674,8 @@ function worldStats() {
 }
 
 // 六角形の地図をSVGで描く。mini=true はホーム用（文字なし・小さめ）
-function worldMapSvg({ mini = false, realms = null, interactive = true } = {}) {
+// fresh：新しく取ったマスを光らせる {分野: 何マス目から新しいか}、freshCastles：新しく建った城の分野
+function worldMapSvg({ mini = false, realms = null, interactive = true, fresh = null, freshCastles = null } = {}) {
   realms = realms || worldStats().realms; // 他の人のプロフィールでは、その人の版図を渡す
   const S = 10; // 六角形1つの大きさ
   const R3 = Math.sqrt(3);
@@ -648,14 +703,20 @@ function worldMapSvg({ mini = false, realms = null, interactive = true } = {}) {
   const minX = Math.min(...xs) - S - pad, maxX = Math.max(...xs) + S + pad;
   const minY = Math.min(...ys) - S - pad, maxY = Math.max(...ys) + S + pad;
 
+  let freshOrder = 0;
   const hexes = tiles.map((t) => {
     const realm = realms[t.field];
     const [x, y] = px(t.q, t.r);
     const pts = corners(x, y).map((p) => p.map((n) => n.toFixed(1)).join(',')).join(' ');
     const won = t.k < realm.conquered;
     const front = !won && realm.front && t.k === realm.conquered;
-    const cls = won ? 'hx won' : front ? 'hx front' : realm.planned ? 'hx plan' : 'hx wild';
-    const delay = won ? `style="--cover:${FIELD_COLORS[t.field]};animation-delay:${(t.k * 60)}ms"` : `style="--cover:${FIELD_COLORS[t.field]}"`;
+    const isFresh = won && fresh && fresh[t.field] !== undefined && t.k >= fresh[t.field];
+    const cls = isFresh ? 'hx won fresh' : won ? 'hx won' : front ? 'hx front' : realm.planned ? 'hx plan' : 'hx wild';
+    let delay = `style="--cover:${FIELD_COLORS[t.field]}"`;
+    if (isFresh) {
+      const ms = 500 + (freshOrder++) * 380; // 新しいマスは1つずつ順番に広がる
+      delay = `style="--cover:${FIELD_COLORS[t.field]};animation-delay:${ms}ms,${ms + 700}ms"`;
+    } else if (won) delay = `style="--cover:${FIELD_COLORS[t.field]};animation-delay:${t.k * 60}ms"`;
     return `<polygon class="${cls}" points="${pts}" ${delay} ${interactive ? `data-action="open-field" data-field="${esc(t.field)}"` : ''}/>`;
   }).join('');
 
@@ -686,7 +747,8 @@ function worldMapSvg({ mini = false, realms = null, interactive = true } = {}) {
       const [x, y] = px(2 * a - b, a + 3 * b);
       if (realm.castle) {
         // 城は首都のマスの上半分に小さく、国名はその下に
-        capitals.push(`<path class="castle" d="M${x - 3.6},${y - 1}v-4h1.4v1.4h1.5v-2.2h1.4v2.2h1.5v-1.4h1.4v4z" />`);
+        const newCastle = freshCastles && freshCastles.has(field);
+        capitals.push(`<path class="castle ${newCastle ? 'fresh' : ''}" ${newCastle ? `style="animation-delay:${500 + freshOrder * 380}ms"` : ''} d="M${x - 3.6},${y - 1}v-4h1.4v1.4h1.5v-2.2h1.4v2.2h1.5v-1.4h1.4v4z" />`);
       }
       if (!mini) {
         const label = SHORT[field];
@@ -746,6 +808,9 @@ function renderMap() {
   };
 
   const world = worldStats();
+  // 前回地図を見たときから増えた領土を光らせる
+  const seen = data.settings.seenRealm;
+  const diff = seen ? realmDiff(seen) : null;
   const ranking = Object.values(world.realms).filter((r) => r.conquered).sort((a, b) => b.conquered - a.conquered || b.done - a.done);
   el.innerHTML = `
     <section class="realm-hero">
@@ -757,7 +822,8 @@ function renderMap() {
           <span><span class="big">${trunks}</span><small>城</small></span>
         </div>
       </div>
-      <div class="map-frame">${worldMapSvg()}</div>
+      <div class="map-frame">${diff && diff.changed ? worldMapSvg({ fresh: diff.fresh, freshCastles: diff.freshCastles }) : worldMapSvg()}</div>
+      ${diff && diff.changed ? `<p class="fresh-note">前に地図を見たときから、${diff.lines.length}か国で領土が広がりました</p>` : ''}
       <p class="map-note">本を1冊読み終えるごとに、その分野の国の首都から領土が広がります。幹（入門・古典）を読むと首都に城が建ちます。
       ${blanks.length ? `<br>まだ霧の中：${blanks.slice(0, 3).map((b) => esc(b.field)).join('、')}${blanks.length > 3 ? ` ほか${blanks.length - 3}か国` : ''}` : ''}</p>
       <div class="legend-row legend-map" aria-label="見かた">
@@ -780,6 +846,8 @@ function renderMap() {
         <h2 class="section-title">${c.name}<span class="num"> ${c.fields.filter((f) => byField[f].done).length}/${c.fields.length}</span></h2>
         <div class="lands">${c.fields.map((f) => tile(byField[f])).join('')}</div>
       </section>`).join('')}`;
+  // 見たので、今の版図を「見た状態」として覚える（初めてのときもここで覚える）
+  if (!diff || diff.changed) markRealmSeen();
 }
 
 function openFieldSheet(field) {
@@ -938,6 +1006,7 @@ function renderStats() {
 let sheetMode = null; // いま開いているシートの種類（'timer' など）
 
 function openSheet(title, html, mode = 'form') {
+  if (mode !== 'scanner') stopScanner(); // ほかの画面に移ったらカメラを止める
   sheetMode = mode;
   $('#sheet-title').textContent = title;
   $('#sheet-body').innerHTML = html;
@@ -948,6 +1017,7 @@ function openSheet(title, html, mode = 'form') {
   renderPlayer();
 }
 function closeSheet() {
+  stopScanner();
   sheetMode = null;
   $('#sheet').classList.remove('open');
   $('#backdrop').hidden = true;
@@ -978,6 +1048,9 @@ function openBookForm(id, presetField = '') {
           <input class="input" id="bs-q" type="search" placeholder="タイトル・著者・ISBN" enterkeyhint="search" autocomplete="off">
           <button type="button" class="btn btn-primary" data-action="book-search">検索</button>
         </div>
+        <button type="button" class="btn btn-ghost btn-small scan-btn" data-action="scan" data-mode="single">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5h3M17 5h3v2M20 17v2h-3M7 19H4v-2M7 9v6M10 9v6M13 9v6M16 9v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          バーコードで読み取る</button>
         <p class="field-hint" id="bs-status">候補を選ぶと、表紙・著者・ページ数・分野が入ります。</p>
         <div class="search-results" id="bs-results"></div>
       </div>
@@ -1038,6 +1111,7 @@ function submitBookForm(form) {
     coverUrl: formCover.coverUrl || '', coverData: formCover.coverData || '', isbn: formCover.isbn || '',
   };
   const id = form.dataset.id;
+  const realmBefore = realmSnapshot();
   let target;
   const wasDone = id && bookById(id).status === 'done';
   if (id) {
@@ -1051,8 +1125,12 @@ function submitBookForm(form) {
   save();
   render();
   // 読了にしたときは、感想とつながりを書く画面へ
-  if (status === 'done' && !wasDone && !target.review) openReviewForm(target.id, true);
-  else closeSheet();
+  if (status === 'done' && !wasDone) {
+    const shown = openConquest(realmBefore, target);
+    if (shown) celebrate();
+    else if (!target.review) openReviewForm(target.id, true);
+    else closeSheet();
+  } else closeSheet();
 }
 
 // --- 本の検索 ---
@@ -1065,6 +1143,7 @@ const GOOGLE_BOOKS_KEY = 'AIzaSyBBNe-e60G-DA9IC37rXfjS2_JOXBg2xZ0'; // Google Bo
 let searchResults = [];
 let searchSeq = 0; // 古い検索結果が後から届いても無視するための番号
 
+// 検索欄の言葉で本を探して、候補を画面に並べる
 async function searchBooks() {
   const q = $('#bs-q').value.trim();
   const status = $('#bs-status');
@@ -1073,6 +1152,25 @@ async function searchBooks() {
   const seq = ++searchSeq;
   status.textContent = 'さがしています…';
   list.innerHTML = '';
+  const found = await findBooks(q);
+  if (seq !== searchSeq) return;
+  if (found.failed) {
+    status.textContent = '本のデータベースに接続できませんでした。電波を確認するか、下に手で入力してください。';
+    return;
+  }
+  searchResults = found.results;
+  if (!searchResults.length) { status.textContent = '見つかりませんでした。言葉を短くするか、下に手で入力してください。'; return; }
+  status.textContent = `${searchResults.length}件（${found.source}）。タップで自動入力。表紙がない本は自動の表紙になります。`;
+  list.innerHTML = searchResults.map((r, i) => `
+    <button type="button" class="result-card" data-action="pick-result" data-i="${i}">
+      ${coverHtml({ title: r.title, author: r.author, field: r.field, position: 'trunk', coverUrl: r.coverUrl })}
+      <span class="result-title">${esc(r.title)}</span>
+      <span class="result-sub">${esc(r.author || '')}${r.pages ? `・${r.pages}p` : ''}</span>
+    </button>`).join('');
+}
+
+// 言葉（またはISBN）で3つのデータベースを探し、同じ本をまとめて、近い順に並べた候補を返す
+async function findBooks(q) {
   const digits = q.replace(/[-\s]/g, '');
   const isbn = /^(\d{9}[\dX]|\d{13})$/i.test(digits) ? digits : '';
   const isJapanese = /[぀-ヿ㐀-鿿]/.test(q);
@@ -1085,14 +1183,10 @@ async function searchBooks() {
   if (!isJapanese) tasks.ol = searchOpenLibrary(q, isbn);
   const names = Object.keys(tasks);
   const settled = await Promise.allSettled(Object.values(tasks));
-  if (seq !== searchSeq) return;
   const got = {};
   for (const name of ['google', 'ndl', 'ol']) got[name] = [];
   names.forEach((name, i) => { got[name] = settled[i].status === 'fulfilled' ? settled[i].value.map((r) => ({ ...r, src: name })) : []; });
-  if (settled.every((s) => s.status === 'rejected')) {
-    status.textContent = '本のデータベースに接続できませんでした。電波を確認するか、下に手で入力してください。';
-    return;
-  }
+  if (settled.every((s) => s.status === 'rejected')) return { failed: true, results: [], source: '' };
 
   // 同じISBNの本は1つに合体させる。
   //   表紙：Google ＞ Open Library ＞ 国会図書館（国会図書館の表紙は出ないことが多い）
@@ -1142,23 +1236,16 @@ async function searchBooks() {
       + (r.isbn ? 0.5 : 0) + (r.coverUrl && r.coverSrc !== 'ndl' ? 0.3 : 0)
       - (/セット|試し読み|特装|合本|全\d+巻|をどう読むか|まんが|マンガ|漫画/.test(r.title) ? 1.5 : 0);
   };
-  searchResults = results.filter((r) => {
+  // ISBNで探したときは、そのISBNの本を必ず先頭に
+  const ranked = results.filter((r) => {
     const key = r.isbn || norm(r.title);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).map((r, i) => ({ r, i, s: score(r) }))
+  }).map((r, i) => ({ r, i, s: score(r) + (isbn && r.isbn === isbn ? 10 : 0) }))
     .sort((a, b) => b.s - a.s || a.i - b.i)
     .map((x) => x.r).slice(0, 15);
-
-  if (!searchResults.length) { status.textContent = '見つかりませんでした。言葉を短くするか、下に手で入力してください。'; return; }
-  status.textContent = `${searchResults.length}件（${source}）。タップで自動入力。表紙がない本は自動の表紙になります。`;
-  list.innerHTML = searchResults.map((r, i) => `
-    <button type="button" class="result-card" data-action="pick-result" data-i="${i}">
-      ${coverHtml({ title: r.title, author: r.author, field: r.field, position: 'trunk', coverUrl: r.coverUrl })}
-      <span class="result-title">${esc(r.title)}</span>
-      <span class="result-sub">${esc(r.author || '')}${r.pages ? `・${r.pages}p` : ''}</span>
-    </button>`).join('');
+  return { failed: false, results: ranked, source };
 }
 
 async function searchGoogle(query) {
@@ -1461,6 +1548,7 @@ function submitLogForm() {
 // 記録を1件追加する（タイマーと手入力の共通処理）。状態の自動更新とお祝いもここで。
 function addSession({ book, date, minutes, startPage, endPage, source }) {
   const before = { streak: streakInfo().current, todayMin: minutesOn(todayStr()) };
+  const realmBefore = realmSnapshot();
   data.sessions.push({ id: newId(), bookId: book.id, date, minutes, startPage, endPage, source, createdAt: new Date().toISOString() });
 
   let msg = `${endPage - startPage}ページ・${fmtMinutes(minutes)}を記録しました`;
@@ -1484,7 +1572,8 @@ function addSession({ book, date, minutes, startPage, endPage, source }) {
   render();
   // ログインしていれば、タイムラインに投稿してプロフィールを更新（social.js）
   window.social?.afterSession({ book, minutes, pages: endPage - startPage, finished });
-  if (finished) openReviewForm(book.id, true); // 読了したら、感想とつながりを書く画面へ
+  // 読了したら「版図が広がった！」→ 感想へ。広がらなかったら（その国を制覇済みなど）すぐ感想へ
+  if (finished) { if (!openConquest(realmBefore, book)) openReviewForm(book.id, true); }
   else closeSheet();
   toast(msg);
   if (party) celebrate();
@@ -1917,6 +2006,145 @@ function towerTeaserHtml() {
     </button>`;
 }
 
+/* ---------- バーコードで登録 ---------- */
+// 本の裏の「978」で始まるバーコード（ISBN）をカメラで読み取り、本の情報を探して登録する。
+// 読み取りの部品（html5-qrcode）は、スキャンするときだけ読み込む。
+const SCANNER_URL = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+let scanner = null;        // カメラで読み取り中の部品
+let scanMode = 'single';   // 'single'（1冊ずつ登録）か 'stack'（積読にどんどん追加）
+let lastScan = { code: '', at: 0 };
+let scanBusy = false;
+
+function loadScannerLib() {
+  if (window.__Html5QrcodeLibrary__) return Promise.resolve(window.__Html5QrcodeLibrary__);
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = SCANNER_URL;
+    el.onload = () => (window.__Html5QrcodeLibrary__ ? resolve(window.__Html5QrcodeLibrary__) : reject(new Error('load')));
+    el.onerror = () => reject(new Error('load'));
+    document.head.appendChild(el);
+  });
+}
+
+function openScanner(mode = 'single') {
+  scanMode = mode;
+  openSheet('バーコードで登録', `
+    <div class="scanner">
+      ${segHtml('sc-mode', [{ id: 'single', label: '1冊ずつ登録' }, { id: 'stack', label: '積読にどんどん追加' }], mode)}
+      <div class="sc-view-wrap"><div id="sc-view" class="sc-view"></div><div class="sc-frame" aria-hidden="true"></div></div>
+      <p class="sc-status" id="sc-status" role="status">カメラを準備しています…</p>
+      <p class="field-hint" id="sc-hint">${mode === 'stack' ? '本の裏の「978」で始まるバーコードを写すたびに、積読に追加されます。続けて次の本へどうぞ。' : '本の裏の「978」で始まるバーコードを、枠の中に写してください。'}</p>
+      <label class="btn btn-ghost btn-small" for="sc-file">写真から読み取る</label>
+      <input id="sc-file" type="file" accept="image/*" capture="environment" hidden>
+      <div id="sc-added" class="list"></div>
+    </div>`, 'scanner');
+  startCamera();
+}
+
+async function startCamera() {
+  const status = $('#sc-status');
+  try {
+    const lib = await loadScannerLib();
+    if (sheetMode !== 'scanner') return;
+    scanner = new lib.Html5Qrcode('sc-view', {
+      formatsToSupport: [lib.Html5QrcodeSupportedFormats.EAN_13],
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      verbose: false,
+    });
+    await scanner.start({ facingMode: 'environment' }, { fps: 12, qrbox: { width: 260, height: 110 }, aspectRatio: 1.333 }, onScan, () => {});
+    if (status) status.textContent = 'バーコードを探しています…';
+  } catch (e) {
+    if (status) status.textContent = 'カメラが使えませんでした。ブラウザでカメラを許可するか、「写真から読み取る」でバーコードの写真を選んでください。';
+    $('.sc-view-wrap')?.classList.add('off');
+  }
+}
+
+async function stopScanner() {
+  const s = scanner;
+  scanner = null;
+  if (!s) return;
+  try { if (s.isScanning) await s.stop(); s.clear(); } catch (e) { /* 止まっていれば何もしない */ }
+}
+
+async function scanPhoto(file) {
+  if (!file) return;
+  const status = $('#sc-status');
+  status.textContent = '写真を読み取っています…';
+  try {
+    const lib = await loadScannerLib();
+    // 写真の読み取りには、カメラ用とは別の入れ物を使う
+    let box = $('#sc-file-box');
+    if (!box) { box = document.createElement('div'); box.id = 'sc-file-box'; box.hidden = true; document.body.appendChild(box); }
+    const reader = new lib.Html5Qrcode('sc-file-box', { formatsToSupport: [lib.Html5QrcodeSupportedFormats.EAN_13], verbose: false });
+    const code = await reader.scanFile(file, false);
+    reader.clear();
+    await onScan(code);
+  } catch (e) {
+    status.textContent = 'この写真からはバーコードを読み取れませんでした。バーコードを大きく、まっすぐ写してみてください。';
+  }
+}
+
+async function onScan(text) {
+  const code = String(text).replace(/\D/g, '');
+  const status = $('#sc-status');
+  // 日本の本には2段目のバーコード（192…の値段の情報）もあるので、978/979だけを使う
+  if (!/^97[89]\d{10}$/.test(code)) {
+    if (status) status.textContent = '上の段の「978」で始まるバーコードを写してください（下の段は値段の情報です）。';
+    return;
+  }
+  const now = Date.now();
+  if (scanBusy || (code === lastScan.code && now - lastScan.at < 4000)) return; // 同じ本を何度も読まない
+  lastScan = { code, at: now };
+  scanBusy = true;
+  try { navigator.vibrate?.(40); } catch (e) { /* 無視 */ }
+
+  if (scanMode === 'single') {
+    await stopScanner();
+    openBookForm();
+    $('#bs-q').value = code;
+    await searchBooks();
+    // ISBNが一致した本があれば、そのまま自動入力
+    if (searchResults[0] && searchResults[0].isbn === code) pickResult(0);
+    scanBusy = false;
+    return;
+  }
+
+  // 積読にどんどん追加
+  if (data.books.some((b) => b.isbn === code)) {
+    status.textContent = `ISBN ${code} の本は、もう本棚にあります。次の本へどうぞ。`;
+    scanBusy = false;
+    return;
+  }
+  status.textContent = `ISBN ${code} の本をさがしています…`;
+  const found = await findBooks(code);
+  const r = found.results.find((x) => x.isbn === code) || found.results[0];
+  if (!r) {
+    status.textContent = found.failed ? '本のデータベースに接続できませんでした。電波を確認してください。' : `ISBN ${code} の本が見つかりませんでした。あとで手で登録してください。`;
+    scanBusy = false;
+    return;
+  }
+  const book = {
+    id: newId(), createdAt: new Date().toISOString(),
+    title: r.title, author: r.author || '', field: r.field || '', totalPages: parseInt(r.pages, 10) || 250,
+    pagesGuessed: !r.pages, status: 'want', position: 'trunk', lang: r.lang || 'ja', finishedAt: null,
+    price: parseInt(r.price, 10) || null, coverUrl: r.coverUrl || '', coverData: '', isbn: code,
+  };
+  data.books.push(book);
+  save();
+  render();
+  status.textContent = `「${mainTitle(book.title)}」を積読に追加しました。次の本へどうぞ。`;
+  const list = $('#sc-added');
+  if (list) {
+    list.insertAdjacentHTML('afterbegin', `
+      <div class="log-item">${coverHtml(book, 'xs')}
+        <div class="log-main"><span class="log-book">${esc(book.title)}</span>
+          <span class="log-meta">${esc(book.author || '著者不明')}${book.field ? `・${esc(book.field)}` : '・<strong class="warn">分野を確認</strong>'}${book.pagesGuessed ? '・ページ数は仮' : ''}</span></div>
+        <button class="del-btn" data-action="edit-book" data-id="${book.id}">編集</button>
+      </div>`);
+  }
+  scanBusy = false;
+}
+
 /* ---------- 7. 読書タイマー ---------- */
 // タイマーの状態は data.timer に保存する。
 //   accMs: 一時停止までにたまった時間 / startedAt: 最後にスタート（再開）した時刻
@@ -2231,6 +2459,7 @@ document.addEventListener('click', (e) => {
     case 'record': openRecordSheet(id, el.dataset.mode); break;
     case 'add-book': openBookForm(null, el.dataset.field || ''); break;
     case 'book-search': searchBooks(); break;
+    case 'scan': openScanner(el.dataset.mode || 'single'); break;
     case 'pick-result': pickResult(Number(el.dataset.i)); break;
     case 'remove-cover': formCover = { ...formCover, coverUrl: '', coverData: '' }; refreshCoverPreview(); break;
     case 'open-field': openFieldSheet(el.dataset.field); break;
@@ -2345,6 +2574,11 @@ document.addEventListener('change', (e) => {
   }
   if (e.target.name === 'bf-status') $('#bf-finished-wrap').hidden = e.target.value !== 'done';
   if (e.target.id === 'bf-photo') loadPhoto(e.target.files[0]);
+  if (e.target.id === 'sc-file') scanPhoto(e.target.files[0]);
+  if (e.target.name === 'sc-mode') {
+    scanMode = e.target.value;
+    $('#sc-hint').textContent = scanMode === 'stack' ? '本の裏の「978」で始まるバーコードを写すたびに、積読に追加されます。続けて次の本へどうぞ。' : '本の裏の「978」で始まるバーコードを、枠の中に写してください。';
+  }
   if (e.target.id === 'bf-field' || e.target.name === 'bf-pos') refreshCoverPreview();
   if (e.target.name === 'shelf-mode') { shelfMode = e.target.value; renderBooks(); }
   if (e.target.name === 'tower-kind') { towerKind = e.target.value; renderBooks(); }
@@ -2363,4 +2597,5 @@ document.addEventListener('error', (e) => {
 }, true);
 
 // 起動
+if (!data.settings.seenRealm) markRealmSeen(); // 初回は今の版図を「見た状態」にする（全部が光らないように）
 render();
