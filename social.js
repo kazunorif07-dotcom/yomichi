@@ -135,7 +135,8 @@ async function syncProfile() {
   if (!S.user || !S.profile) return;
   const world = worldStats();
   const realm = {};
-  for (const [field, r] of Object.entries(world.realms)) if (r.conquered || r.castle) realm[field] = { c: r.conquered, k: r.castle ? 1 : 0 };
+  // d＝読了冊数（地図のマス数は d から計算する。マス数の決まりが変わっても大丈夫なように）
+  for (const [field, r] of Object.entries(world.realms)) if (r.conquered || r.castle) realm[field] = { c: r.conquered, k: r.castle ? 1 : 0, d: r.done };
   const emp = empireCompare(world.conquered);
   const patch = {
     name: S.profile.name,
@@ -428,7 +429,9 @@ async function openProfile(uid) {
     const realms = {};
     for (const f of FIELDS) {
       const r = (u.realm || {})[f] || {};
-      realms[f] = { conquered: r.c || 0, castle: !!r.k, front: false, planned: false };
+      // 新しい記録は読了冊数（d）から、古い記録（1国7マス時代）はマス数を19マスに読み替える
+      const conquered = r.d !== undefined ? conqueredOf(r.d) : Math.min(COUNTRY_SIZE, Math.round(((r.c || 0) * COUNTRY_SIZE) / 7));
+      realms[f] = { conquered, castle: !!r.k, front: false, planned: false };
     }
     $('#sheet-body').innerHTML = `
       <div class="profile">

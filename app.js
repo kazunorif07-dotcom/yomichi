@@ -537,25 +537,37 @@ function renderHistory() {
 }
 
 /* ---------- 知の版図（六角形の世界地図） ---------- */
-// 18分野がそれぞれ「国」。国は六角形7マス（首都＋まわり6マス）。
-// 本を読了するたびに、首都から外側へ領土が広がる。幹の本を読むと首都に城が建つ。
+// 18分野がそれぞれ「国」。国は六角形19マス（首都＋まわり2周）。
+// 本を読了するたびに、首都から外側へ3マスずつ領土が広がる（6冊で国全体を制覇）。幹の本を読むと首都に城が建つ。
 const SHORT = {
   '物理学・宇宙': '物理', '生物・進化': '生物', '化学・素材': '化学', '数学・統計': '数学', 'コンピュータ・AI': 'AI',
   '工学・エネルギー': '工学', '経済学': '経済', '金融・投資': '金融', '経営・起業': '経営', '心理学・認知科学': '心理',
   '社会学・人類学': '社会', '政治・公共政策': '政治', '歴史': '歴史', '哲学・倫理': '哲学', '宗教': '宗教',
   '文学・小説': '文学', '芸術・デザイン': '芸術', '医学・健康': '医学',
 };
-// 首都から広がる順番（首都→右→右上→左上→左→左下→右下）。六角形の座標は「軸座標(q, r)」。
-const FLOWER = [[0, 0], [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-const HEX_DIRS = FLOWER.slice(1);
+// 六角形の座標は「軸座標(q, r)」。となりの6方向：
+const HEX_DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+const hexDist = (q, r) => (Math.abs(q) + Math.abs(r) + Math.abs(q + r)) / 2;
+// 国の19マスを、首都→1周目→2周目の順に並べる（領土はこの順に広がる）
+const COUNTRY = (() => {
+  const cells = [];
+  for (let q = -2; q <= 2; q++) for (let r = -2; r <= 2; r++) if (hexDist(q, r) <= 2) cells.push([q, r]);
+  const ang = ([q, r]) => (Math.atan2(1.5 * r, Math.sqrt(3) * (q + r / 2)) + Math.PI * 2.5) % (Math.PI * 2);
+  return cells.sort((a, b) => hexDist(...a) - hexDist(...b) || ang(a) - ang(b));
+})();
+const COUNTRY_SIZE = COUNTRY.length; // 19
 // 大陸ごとの国の配置（格子の番号 a, b）。国どうしがすき間なく並び、大陸の間は海になる。
+// 首都の座標は q = 5a + 2b, r = -2a + 3b
 const WORLD = [
-  { name: '人文・芸術', cells: [[0, 0], [1, 0], [0, 1], [1, 1], [-1, 2]], fields: ['哲学・倫理', '歴史', '宗教', '文学・小説', '芸術・デザイン'] },
-  { name: '自然科学', cells: [[4, -1], [5, -1], [3, 0], [4, 0], [3, 1]], fields: ['物理学・宇宙', '数学・統計', '化学・素材', '生物・進化', '医学・健康'] },
-  { name: '社会・人間', cells: [[0, 3], [1, 3], [-1, 4], [0, 4], [1, 4], [-1, 5]], fields: ['心理学・認知科学', '社会学・人類学', '政治・公共政策', '経済学', '経営・起業', '金融・投資'] },
-  { name: 'テクノロジー', cells: [[3, 3], [4, 3]], fields: ['コンピュータ・AI', '工学・エネルギー'] },
+  { name: '人文・芸術', cells: [[-1, 0], [0, 0], [1, 0], [-1, 1], [0, 1]], fields: ['芸術・デザイン', '哲学・倫理', '歴史', '文学・小説', '宗教'] },
+  { name: '自然科学', cells: [[3, 1], [4, 0], [5, 0], [4, 1], [5, 1]], fields: ['化学・素材', '物理学・宇宙', '数学・統計', '生物・進化', '医学・健康'] },
+  { name: '社会・人間', cells: [[-1, 3], [0, 3], [-2, 3], [-1, 4], [0, 4], [-2, 4]], fields: ['心理学・認知科学', '社会学・人類学', '政治・公共政策', '経済学', '経営・起業', '金融・投資'] },
+  { name: 'テクノロジー', cells: [[3, 3], [3, 4]], fields: ['コンピュータ・AI', '工学・エネルギー'] },
 ];
-const TOTAL_HEX = FIELDS.length * 7;
+const capitalOf = ([a, b]) => [5 * a + 2 * b, -2 * a + 3 * b];
+const TOTAL_HEX = FIELDS.length * COUNTRY_SIZE;
+// 読了冊数 → 制覇したマス数（1冊目で4マス、以降1冊ごとに3マス）
+const conqueredOf = (done) => (done ? Math.min(COUNTRY_SIZE, 1 + done * 3) : 0);
 
 // 歴史上の帝国（最盛期のおおよその面積）。知の世界全体を地球の陸地（約1億4890万km²）に見立てて比べる。
 const EMPIRES = [
@@ -613,9 +625,74 @@ function empireHtml(conquered) {
 
 // 国ごとの状態：何マス制覇したか、城があるか、最前線（読書中）か、予定地（積読）か
 function realmOf(s) {
-  const conquered = s.done ? Math.min(7, 1 + s.done) : 0;
-  return { conquered, castle: s.trunkDone, front: s.reading > 0 && conquered < 7, planned: !s.done && (s.tsundoku > 0 || s.reading > 0) };
+  const conquered = conqueredOf(s.done);
+  return { conquered, castle: s.trunkDone, front: s.reading > 0 && conquered < COUNTRY_SIZE, planned: !s.done && (s.tsundoku > 0 || s.reading > 0) };
 }
+
+// 地図を全画面で見る（指で動かす・2本指で拡大）
+function openMapFullscreen() {
+  if ($('#map-full')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'map-full';
+  wrap.id = 'map-full';
+  wrap.setAttribute('role', 'dialog');
+  wrap.setAttribute('aria-label', '知の版図（全画面）');
+  wrap.innerHTML = `
+    <div class="map-full-bar"><span class="map-full-title">知の版図 ${worldStats().pct}%・${esc(titleOf(fieldStats().filter((x) => x.done).length).name)}</span>
+      <button class="icon-btn" data-action="close-map-full" aria-label="閉じる"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button></div>
+    <div class="map-full-stage" id="mf-stage"><div class="map-full-inner" id="mf-inner">${worldMapSvg()}</div></div>
+    <div class="map-full-zoom"><button data-action="mf-zoom" data-z="1.4" aria-label="拡大">＋</button><button data-action="mf-zoom" data-z="0.714" aria-label="縮小">−</button></div>
+    <p class="map-full-hint" id="mf-hint">指で動かす・2本指で拡大・国をタップ</p>`;
+  document.body.appendChild(wrap);
+  const stage = $('#mf-stage'), inner = $('#mf-inner'), svg = inner.querySelector('svg');
+  const [, , W, H] = svg.getAttribute('viewBox').split(' ').map(Number);
+  svg.style.width = `${W}px`;
+  svg.style.height = `${H}px`;
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  // 縦長の画面では、地図の高さに合わせて表示する（横に広がるので、指で動かして探検できる）
+  let s0 = (sh * 0.86) / H;
+  if (W * s0 < sw) s0 = sw / W;
+  const v = { s: s0, x: (sw - W * s0) / 2, y: (sh - H * s0) / 2 };
+  const apply = () => { inner.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.s})`; };
+  const zoomAt = (f, cx, cy) => {
+    const ns = Math.min(s0 * 6, Math.max(s0 * 0.6, v.s * f));
+    v.x = cx - ((cx - v.x) * ns) / v.s;
+    v.y = cy - ((cy - v.y) * ns) / v.s;
+    v.s = ns;
+    apply();
+  };
+  apply();
+  const pointers = new Map();
+  let moved = 0, last = null;
+  stage.addEventListener('pointerdown', (e) => { stage.setPointerCapture(e.pointerId); pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = 0; last = null; $('#mf-hint')?.remove(); });
+  stage.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    const prev = pointers.get(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const rect = stage.getBoundingClientRect();
+    if (pointers.size === 1) {
+      v.x += e.clientX - prev.x; v.y += e.clientY - prev.y;
+      moved += Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y);
+      apply();
+    } else if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const mid = { x: (a.x + b.x) / 2 - rect.left, y: (a.y + b.y) / 2 - rect.top };
+      if (last) { zoomAt(dist / last.dist, mid.x, mid.y); v.x += mid.x - last.mid.x; v.y += mid.y - last.mid.y; apply(); }
+      last = { dist, mid };
+      moved += 10;
+    }
+  });
+  const up = (e) => { pointers.delete(e.pointerId); if (pointers.size < 2) last = null; };
+  stage.addEventListener('pointerup', up);
+  stage.addEventListener('pointercancel', up);
+  stage.addEventListener('wheel', (e) => { e.preventDefault(); const r = stage.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.12 : 0.89, e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+  // 指で動かしたあとは、国のタップとして扱わない
+  stage.addEventListener('click', (e) => { if (moved > 8) { e.stopPropagation(); e.preventDefault(); } }, true);
+  wrap.zoom = (f) => zoomAt(f, stage.clientWidth / 2, stage.clientHeight / 2);
+}
+
+function closeMapFullscreen() { $('#map-full')?.remove(); }
 
 // 版図の今の状態（国ごとのマス数と、城のある国）
 function realmSnapshot() {
@@ -627,7 +704,7 @@ function realmSnapshot() {
 
 // 地図を最後に見たときの版図を覚えておく
 function markRealmSeen(snap = realmSnapshot()) {
-  data.settings.seenRealm = snap;
+  data.settings.seenRealm = { ...snap, v: 2 }; // v2＝1国19マスの地図
   save();
 }
 
@@ -674,6 +751,7 @@ function worldStats() {
 }
 
 // 六角形の地図をSVGで描く。mini=true はホーム用（文字なし・小さめ）
+let mapUid = 0; // 地図ごとに別の名前で色設定を作る（同じ名前だと、隠れている地図の設定を参照してしまうため）
 // fresh：新しく取ったマスを光らせる {分野: 何マス目から新しいか}、freshCastles：新しく建った城の分野
 function worldMapSvg({ mini = false, realms = null, interactive = true, fresh = null, freshCastles = null } = {}) {
   const own = !realms; // 自分の地図なら「つながりの橋」も描く
@@ -681,116 +759,157 @@ function worldMapSvg({ mini = false, realms = null, interactive = true, fresh = 
   const S = 10; // 六角形1つの大きさ
   const R3 = Math.sqrt(3);
   const px = (q, r) => [S * R3 * (q + r / 2), S * 1.5 * r];
-  const corners = (x, y) => Array.from({ length: 6 }, (_, i) => {
+  const corners = (x, y, s = S) => Array.from({ length: 6 }, (_, i) => {
     const a = (Math.PI / 180) * (60 * i - 30);
-    return [x + S * Math.cos(a), y + S * Math.sin(a)];
+    return [x + s * Math.cos(a), y + s * Math.sin(a)];
   });
-  const owner = new Map(); // "q,r" → 分野
+  const pts = (cs) => cs.map((p) => p.map((n) => n.toFixed(1)).join(',')).join(' ');
+  const key = (q, r) => `${q},${r}`;
+  // 決まった乱数（毎回同じ地形になるように）
+  const rnd = (q, r, salt = 0) => ((((q * 73856093) ^ (r * 19349663) ^ (salt * 83492791)) >>> 0) % 1000) / 1000;
+
+  // 国のマス
+  const owner = new Map();
   const tiles = [];
   for (const c of WORLD) {
-    c.cells.forEach(([a, b], i) => {
+    c.cells.forEach((cell, i) => {
       const field = c.fields[i];
-      const cq = 2 * a - b, cr = a + 3 * b; // 国の首都の座標
-      FLOWER.forEach(([dq, dr], k) => {
+      const [cq, cr] = capitalOf(cell);
+      COUNTRY.forEach(([dq, dr], k) => {
         const q = cq + dq, r = cr + dr;
-        owner.set(`${q},${r}`, field);
-        tiles.push({ q, r, field, k, continent: c.name });
+        owner.set(key(q, r), field);
+        tiles.push({ q, r, field, k });
       });
     });
   }
+  // 海岸線を自然にするため、大陸のまわりに「どの国にも属さない土地（森・山）」を足す
+  const wild = new Map();
+  const landAt = (q, r) => owner.has(key(q, r)) || wild.has(key(q, r));
+  for (let pass = 0; pass < 2; pass++) {
+    const cand = new Set();
+    for (const t of [...tiles, ...[...wild.keys()].map((k) => { const [q, r] = k.split(',').map(Number); return { q, r }; })]) {
+      for (const [dq, dr] of HEX_DIRS) { const q = t.q + dq, r = t.r + dr; if (!landAt(q, r)) cand.add(key(q, r)); }
+    }
+    for (const k of cand) {
+      const [q, r] = k.split(',').map(Number);
+      const n = HEX_DIRS.filter(([dq, dr]) => landAt(q + dq, r + dr)).length;
+      const p = pass === 0 ? (n >= 3 ? 0.85 : n === 2 ? 0.45 : 0.12) : (n >= 4 ? 0.9 : n === 3 ? 0.4 : 0);
+      if (rnd(q, r, pass + 1) < p) wild.set(k, rnd(q, r, 9) < 0.35 ? 'mountain' : rnd(q, r, 7) < 0.5 ? 'forest' : 'plain');
+    }
+  }
+
   const xs = [], ys = [];
   for (const t of tiles) { const [x, y] = px(t.q, t.r); xs.push(x); ys.push(y); }
-  const pad = mini ? 8 : 26;
+  for (const k of wild.keys()) { const [q, r] = k.split(',').map(Number); const [x, y] = px(q, r); xs.push(x); ys.push(y); }
+  const pad = mini ? 14 : 30;
   const minX = Math.min(...xs) - S - pad, maxX = Math.max(...xs) + S + pad;
-  const minY = Math.min(...ys) - S - pad, maxY = Math.max(...ys) + S + pad;
+  const minY = Math.min(...ys) - S - pad - (mini ? 0 : 14), maxY = Math.max(...ys) + S + pad;
+  const W = maxX - minX, H = maxY - minY;
+  const uid = ++mapUid;
 
+  // 土台（立体感）→ 森・山の土地 → 国のマス の順に描く
+  const bases = [], tops = [];
+  for (const [k, kind] of wild) {
+    const [q, r] = k.split(',').map(Number);
+    const [x, y] = px(q, r);
+    bases.push(`<polygon class="hx-base" points="${pts(corners(x, y + 2.4))}"/>`);
+    tops.push(`<polygon class="hx wildland" points="${pts(corners(x, y))}"/>`);
+    if (kind === 'mountain') tops.push(`<path class="mtn" d="M${(x - 5).toFixed(1)},${(y + 3).toFixed(1)}l4.2,-7l2.2,3.4l1.4,-2l3.2,5.6z"/>`);
+    if (kind === 'forest') tops.push(`<circle class="tree" cx="${(x - 2.5).toFixed(1)}" cy="${(y + 0.5).toFixed(1)}" r="2.6"/><circle class="tree" cx="${(x + 2.6).toFixed(1)}" cy="${(y + 1.5).toFixed(1)}" r="2.2"/>`);
+  }
   let freshOrder = 0;
-  const hexes = tiles.map((t) => {
+  for (const t of tiles) {
     const realm = realms[t.field];
     const [x, y] = px(t.q, t.r);
-    const pts = corners(x, y).map((p) => p.map((n) => n.toFixed(1)).join(',')).join(' ');
     const won = t.k < realm.conquered;
-    const front = !won && realm.front && t.k === realm.conquered;
+    const front = !won && realm.front && t.k < realm.conquered + 3;
     const isFresh = won && fresh && fresh[t.field] !== undefined && t.k >= fresh[t.field];
     const cls = isFresh ? 'hx won fresh' : won ? 'hx won' : front ? 'hx front' : realm.planned ? 'hx plan' : 'hx wild';
-    let delay = `style="--cover:${FIELD_COLORS[t.field]}"`;
-    if (isFresh) {
-      const ms = 500 + (freshOrder++) * 380; // 新しいマスは1つずつ順番に広がる
-      delay = `style="--cover:${FIELD_COLORS[t.field]};animation-delay:${ms}ms,${ms + 700}ms"`;
-    } else if (won) delay = `style="--cover:${FIELD_COLORS[t.field]};animation-delay:${t.k * 60}ms"`;
-    return `<polygon class="${cls}" points="${pts}" ${delay} ${interactive ? `data-action="open-field" data-field="${esc(t.field)}"` : ''}/>`;
-  }).join('');
+    let style = `--cover:${FIELD_COLORS[t.field]}`;
+    if (isFresh) { const ms = 500 + (freshOrder++) * 260; style += `;animation-delay:${ms}ms,${ms + 700}ms`; }
+    else if (won) style += `;animation-delay:${t.k * 25}ms`;
+    bases.push(`<polygon class="hx-base ${won ? 'won' : ''}" style="--cover:${FIELD_COLORS[t.field]}" points="${pts(corners(x, y + 2.4))}"/>`);
+    tops.push(`<polygon class="${cls}" points="${pts(corners(x, y))}" style="${style}" ${interactive ? `data-action="open-field" data-field="${esc(t.field)}"` : ''}/>`);
+  }
 
   // 国境と海岸線：となりのマスが別の国（または海）なら、その辺に線を引く
   const borders = [], coast = [];
-  for (const t of tiles) {
-    const [x, y] = px(t.q, t.r);
+  const edge = (x, y, dq, dr) => {
     const cs = corners(x, y);
-    HEX_DIRS.forEach(([dq, dr]) => {
-      const n = owner.get(`${t.q + dq},${t.r + dr}`);
-      if (n === t.field) return;
-      // 方向(dq,dr)に向いた辺の両端の角を選ぶ
-      const [nx, ny] = px(t.q + dq, t.r + dr);
-      const ang = Math.atan2(ny - y, nx - x);
-      const pick = cs.map((p, i) => ({ p, d: Math.abs(Math.atan2(Math.sin(Math.atan2(p[1] - y, p[0] - x) - ang), Math.cos(Math.atan2(p[1] - y, p[0] - x) - ang))) }))
-        .sort((m, n2) => m.d - n2.d).slice(0, 2).map((m) => m.p);
-      const seg = `M${pick[0][0].toFixed(1)},${pick[0][1].toFixed(1)}L${pick[1][0].toFixed(1)},${pick[1][1].toFixed(1)}`;
-      (n ? borders : coast).push(seg);
+    const i = { '1,0': 0, '0,1': 1, '-1,1': 2, '-1,0': 3, '0,-1': 4, '1,-1': 5 }[`${dq},${dr}`];
+    const p1 = cs[i], p2 = cs[(i + 1) % 6]; // 方向 i を向いた辺の両端の角
+    return `M${p1[0].toFixed(1)},${p1[1].toFixed(1)}L${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  };
+  const allLand = [...tiles.map((t) => ({ q: t.q, r: t.r, field: t.field })), ...[...wild.keys()].map((k) => { const [q, r] = k.split(',').map(Number); return { q, r, field: null }; })];
+  for (const t of allLand) {
+    const [x, y] = px(t.q, t.r);
+    for (const [dq, dr] of HEX_DIRS) {
+      const nq = t.q + dq, nr = t.r + dr;
+      if (!landAt(nq, nr)) coast.push(edge(x, y, dq, dr));
+      else if (t.field && owner.get(key(nq, nr)) !== t.field) borders.push(edge(x, y, dq, dr));
+    }
+  }
+
+  // 首都：城（幹を読了）と国の名前
+  const capitals = [];
+  for (const c of WORLD) {
+    c.cells.forEach((cell, i) => {
+      const field = c.fields[i];
+      const realm = realms[field];
+      const [x, y] = px(...capitalOf(cell));
+      if (realm.castle) {
+        const newCastle = freshCastles && freshCastles.has(field);
+        capitals.push(`<path class="castle ${newCastle ? 'fresh' : ''}" ${newCastle ? `style="animation-delay:${500 + freshOrder * 260}ms"` : ''} d="M${x - 6},${y - 1}v-6.5h2.3v2.2h2.4v-3.6h2.6v3.6h2.4v-2.2h2.3v6.5z"/>`);
+      }
+      if (!mini) capitals.push(`<text class="realm-name ${realm.conquered ? 'on' : ''}" x="${x}" y="${y + (realm.castle ? 8.5 : 3.6)}" text-anchor="middle">${SHORT[field]}</text>`);
     });
   }
 
-  // 首都：城（幹を読了）または旗、国の名前
-  const capitals = [];
-  for (const c of WORLD) {
-    c.cells.forEach(([a, b], i) => {
-      const field = c.fields[i];
-      const realm = realms[field];
-      const [x, y] = px(2 * a - b, a + 3 * b);
-      if (realm.castle) {
-        // 城は首都のマスの上半分に小さく、国名はその下に
-        const newCastle = freshCastles && freshCastles.has(field);
-        capitals.push(`<path class="castle ${newCastle ? 'fresh' : ''}" ${newCastle ? `style="animation-delay:${500 + freshOrder * 380}ms"` : ''} d="M${x - 3.6},${y - 1}v-4h1.4v1.4h1.5v-2.2h1.4v2.2h1.5v-1.4h1.4v4z" />`);
-      }
-      if (!mini) {
-        const label = SHORT[field];
-        capitals.push(`<text class="realm-name ${realm.conquered ? 'on' : ''}" x="${x}" y="${y + (realm.castle ? 5.6 : 2.3)}" text-anchor="middle">${label}</text>`);
-      }
-    });
-  }
   // つながりの橋：別の分野の本どうしがつながっていたら、首都と首都を弧で結ぶ
   const capitalAt = {};
-  for (const c of WORLD) c.cells.forEach(([a, b], i) => { capitalAt[c.fields[i]] = px(2 * a - b, a + 3 * b); });
+  for (const c of WORLD) c.cells.forEach((cell, i) => { capitalAt[c.fields[i]] = px(...capitalOf(cell)); });
   const bridgeSvg = own ? bridges().map(({ a, b }) => {
     const [x1, y1] = capitalAt[a], [x2, y2] = capitalAt[b];
     const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1;
-    const len = Math.hypot(dx, dy) || 1, bend = Math.min(40, len * 0.28);
+    const len = Math.hypot(dx, dy) || 1, bend = Math.min(60, len * 0.25);
     const cx = mx - (dy / len) * bend, cy = my + (dx / len) * bend;
-    return `<path class="bridge" d="M${x1.toFixed(1)},${y1.toFixed(1)} Q${cx.toFixed(1)},${cy.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}"><title>${a} と ${b} のつながり</title></path>
-      <circle class="bridge-end" cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="2.2"/><circle class="bridge-end" cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="2.2"/>`;
+    return `<path class="bridge" d="M${x1.toFixed(1)},${y1.toFixed(1)} Q${cx.toFixed(1)},${cy.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}"><title>${a} と ${b} のつながり</title></path>`;
   }).join('') : '';
 
   // 大陸の名前（海の上に）
   const continentLabels = mini ? '' : WORLD.map((c) => {
-    const cx = c.cells.map(([a, b]) => px(2 * a - b, a + 3 * b));
+    const cx = c.cells.map((cell) => px(...capitalOf(cell)));
     const x = cx.reduce((m, p) => m + p[0], 0) / cx.length;
-    const y = Math.min(...cx.map((p) => p[1])) - S * 3.1;
-    return `<text class="continent-name" x="${x}" y="${y}" text-anchor="middle">${c.name}</text>`;
+    const y = Math.min(...cx.map((p) => p[1])) - S * 5.6;
+    return `<text class="continent-name" x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle">${c.name}</text>`;
   }).join('');
 
-  return `<svg class="worldmap ${mini ? 'mini' : ''}" viewBox="${minX.toFixed(0)} ${minY.toFixed(0)} ${(maxX - minX).toFixed(0)} ${(maxY - minY).toFixed(0)}" role="img" aria-label="知の版図の地図">
+  // 経線・緯線と方位磁針
+  const grid = [];
+  for (let i = 1; i < 6; i++) grid.push(`<path class="graticule" d="M${minX},${(minY + (H * i) / 6).toFixed(0)} Q${(minX + W / 2).toFixed(0)},${(minY + (H * i) / 6 - 18).toFixed(0)} ${maxX},${(minY + (H * i) / 6).toFixed(0)}"/>`);
+  for (let i = 1; i < 8; i++) grid.push(`<path class="graticule" d="M${(minX + (W * i) / 8).toFixed(0)},${minY} Q${(minX + (W * i) / 8 + (i - 4) * 6).toFixed(0)},${(minY + H / 2).toFixed(0)} ${(minX + (W * i) / 8).toFixed(0)},${maxY}"/>`);
+  const cX = minX + 34, cY = maxY - 34;
+  const compass = mini ? '' : `<g class="compass" transform="translate(${cX.toFixed(0)},${cY.toFixed(0)})">
+      <circle r="17"/><path class="needle-n" d="M0,-21L4,0L-4,0Z"/><path class="needle-s" d="M0,21L4,0L-4,0Z"/><path class="needle-ew" d="M-15,0L0,-2.5L15,0L0,2.5Z"/>
+      <text y="-24" text-anchor="middle">N</text></g>`;
+
+  return `<svg class="worldmap ${mini ? 'mini' : ''}" viewBox="${minX.toFixed(0)} ${minY.toFixed(0)} ${W.toFixed(0)} ${H.toFixed(0)}" role="img" aria-label="知の版図の地図">
       <defs>
-        <pattern id="waves" width="24" height="12" patternUnits="userSpaceOnUse"><path d="M0 8 q6 -4 12 0 t12 0" fill="none" class="wave"/></pattern>
-        <pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" class="hatch"/></pattern>
+        <radialGradient id="seaGrad${uid}" cx="50%" cy="45%" r="75%"><stop offset="0%" class="sea-1"/><stop offset="100%" class="sea-2"/></radialGradient>
+        <pattern id="waves${uid}" width="34" height="16" patternUnits="userSpaceOnUse"><path d="M0 10 q8.5 -5 17 0 t17 0" fill="none" class="wave"/></pattern>
       </defs>
-      <rect x="${minX}" y="${minY}" width="${maxX - minX}" height="${maxY - minY}" class="sea"/>
-      <rect x="${minX}" y="${minY}" width="${maxX - minX}" height="${maxY - minY}" fill="url(#waves)"/>
+      <rect x="${minX}" y="${minY}" width="${W}" height="${H}" fill="url(#seaGrad${uid})"/>
+      <rect x="${minX}" y="${minY}" width="${W}" height="${H}" fill="url(#waves${uid})"/>
+      ${grid.join('')}
       <path class="coast-glow" d="${coast.join('')}"/>
-      ${hexes}
+      ${bases.join('')}
+      ${tops.join('')}
       <path class="border" d="${borders.join('')}"/>
       <path class="coast" d="${coast.join('')}"/>
       ${bridgeSvg}
       ${capitals.join('')}
       ${continentLabels}
+      ${compass}
     </svg>`;
 }
 
@@ -978,7 +1097,7 @@ function renderMap() {
   const world = worldStats();
   // 前回地図を見たときから増えた領土を光らせる
   const seen = data.settings.seenRealm;
-  const diff = seen ? realmDiff(seen) : null;
+  const diff = seen && seen.v === 2 ? realmDiff(seen) : null;
   const ranking = Object.values(world.realms).filter((r) => r.conquered).sort((a, b) => b.conquered - a.conquered || b.done - a.done);
   el.innerHTML = `
     <p class="motto">教養を、地図にする。</p>
@@ -991,7 +1110,8 @@ function renderMap() {
           <span><span class="big">${trunks}</span><small>城</small></span>
         </div>
       </div>
-      <div class="map-frame">${diff && diff.changed ? worldMapSvg({ fresh: diff.fresh, freshCastles: diff.freshCastles }) : worldMapSvg()}</div>
+      <div class="map-frame">${diff && diff.changed ? worldMapSvg({ fresh: diff.fresh, freshCastles: diff.freshCastles }) : worldMapSvg()}
+        <button class="map-expand" data-action="map-full"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10V4h6M20 10V4h-6M4 14v6h6M20 14v6h-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>全画面で見る</button></div>
       ${diff && diff.changed ? `<p class="fresh-note">前に地図を見たときから、${diff.lines.length}か国で領土が広がりました</p>` : ''}
       <p class="map-note">本を1冊読み終えるごとに、その分野の国の首都から領土が広がります。幹（入門・古典）を読むと首都に城が建ちます。
       ${blanks.length ? `<br>まだ霧の中：${blanks.slice(0, 3).map((b) => esc(b.field)).join('、')}${blanks.length > 3 ? ` ほか${blanks.length - 3}か国` : ''}` : ''}</p>
@@ -1009,8 +1129,8 @@ function renderMap() {
       <div class="card-head"><h3>領土の広い国</h3><span class="field-hint">${world.conquered}／${TOTAL_HEX}マス</span></div>
       <div class="hbars">${ranking.slice(0, 5).map((r) => `
         <div class="hbar"><span class="hbar-label">${esc(r.field)}</span>
-          <span class="hbar-track"><i style="width:${(r.conquered / 7) * 100}%;--cover:${FIELD_COLORS[r.field]}"></i></span>
-          <span class="hbar-val num">${r.conquered}/7</span></div>`).join('')}</div>
+          <span class="hbar-track"><i style="width:${(r.conquered / COUNTRY_SIZE) * 100}%;--cover:${FIELD_COLORS[r.field]}"></i></span>
+          <span class="hbar-val num">${r.conquered}/${COUNTRY_SIZE}</span></div>`).join('')}</div>
     </section>` : ''}
     <div class="section-head" style="margin-top:6px"><h2 class="section-title">国の一覧</h2></div>
     ${CONTINENTS.map((c) => `
@@ -2641,7 +2761,10 @@ document.addEventListener('click', (e) => {
     case 'add-starter': addStarter(el.dataset.field, Number(el.dataset.i), el); break;
     case 'pick-result': pickResult(Number(el.dataset.i)); break;
     case 'remove-cover': formCover = { ...formCover, coverUrl: '', coverData: '' }; refreshCoverPreview(); break;
-    case 'open-field': openFieldSheet(el.dataset.field); break;
+    case 'open-field': closeMapFullscreen(); openFieldSheet(el.dataset.field); break;
+    case 'map-full': openMapFullscreen(); break;
+    case 'close-map-full': closeMapFullscreen(); break;
+    case 'mf-zoom': $('#map-full')?.zoom(Number(el.dataset.z)); break;
     case 'bar': chartSel[el.dataset.chart] = Number(el.dataset.i); renderStats(); break;
     case 'edit-book': openBookForm(id); break;
     case 'open-book': openBookDetail(id); break;
@@ -2712,6 +2835,7 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('#map-full')) { closeMapFullscreen(); return; }
   if (e.key === 'Escape' && sheetMode) closeSheet();
   // 検索欄でEnterを押したら、フォームを送信せずに検索する
   if (e.key === 'Enter' && e.target.id === 'bs-q') { e.preventDefault(); searchBooks(); }
@@ -2776,7 +2900,7 @@ document.addEventListener('error', (e) => {
 }, true);
 
 // 新しいバージョンが公開されていないか確認する（スマホが古いページを覚えていることがあるため）
-const APP_VERSION = 16; // 更新するたびに version.json と一緒に上げる
+const APP_VERSION = 17; // 更新するたびに version.json と一緒に上げる
 async function checkUpdate() {
   try {
     const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
@@ -2799,5 +2923,6 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 // 起動
 checkUpdate();
-if (!data.settings.seenRealm) markRealmSeen(); // 初回は今の版図を「見た状態」にする（全部が光らないように）
+// 初回（と、地図が19マスになったとき）は、今の版図を「見た状態」にする（全部が光らないように）
+if (!data.settings.seenRealm || data.settings.seenRealm.v !== 2) markRealmSeen();
 render();

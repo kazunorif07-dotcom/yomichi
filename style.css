@@ -21,6 +21,7 @@
   --shade: rgb(20 23 28 / .14);
   /* 地図の色 */
   --sea: #CFDCE8; --wave: #B9CBDB; --land: #F2EEE3; --coast: #5E7488; --border-line: rgb(21 23 28 / .28); --sea-text: #4F6579;
+  --sea-1: #DCE8F1; --sea-2: #AFC5D8; --wildland: #E4DECD; --mtn: #A79F8C; --tree: #93A88A; --land-base: #B9B09A;
 
   /* 書体：数字＝幅広の幾何学的な書体（Unbounded）、見出し・本文＝すっきりしたゴシック（Zen Kaku Gothic New） */
   --font-display: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
@@ -38,7 +39,7 @@
     --butter: #FFD84F; --butter-ink: #2A2100;
     --mint: #3FD69C; --mint-ink: #052117;
     --danger: #FF7C66; --shade: rgb(0 0 0 / .4);
-    --sea: #0F1B2A; --wave: #1A2A3D; --land: #2B3038; --coast: #6F8AA6; --border-line: rgb(0 0 0 / .45); --sea-text: #8FA6BE;
+    --sea: #0F1B2A; --wave: #1A2A3D; --land: #2B3038; --coast: #6F8AA6; --border-line: rgb(0 0 0 / .45); --sea-text: #8FA6BE; --sea-1: #16283C; --sea-2: #0A1420; --wildland: #252A31; --mtn: #3F4651; --tree: #2F4235; --land-base: #14171C;
     color-scheme: dark;
   }
 }
@@ -49,7 +50,7 @@
   --butter: #FFD84F; --butter-ink: #2A2100;
   --mint: #3FD69C; --mint-ink: #052117;
   --danger: #FF7C66; --shade: rgb(0 0 0 / .4);
-  --sea: #0F1B2A; --wave: #1A2A3D; --land: #2B3038; --coast: #6F8AA6; --border-line: rgb(0 0 0 / .45); --sea-text: #8FA6BE;
+  --sea: #0F1B2A; --wave: #1A2A3D; --land: #2B3038; --coast: #6F8AA6; --border-line: rgb(0 0 0 / .45); --sea-text: #8FA6BE; --sea-1: #16283C; --sea-2: #0A1420; --wildland: #252A31; --mtn: #3F4651; --tree: #2F4235; --land-base: #14171C;
   color-scheme: dark;
 }
 
@@ -560,15 +561,30 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .teaser-go { font-size: 13px; font-weight: 900; color: var(--blue); }
 
 /* ---------- 知の版図（世界地図） ---------- */
-.realm-hero { background: var(--surface); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.realm-hero { background: var(--surface); border-radius: 0; padding: 16px max(16px, env(safe-area-inset-left, 0px)); margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px))); display: flex; flex-direction: column; gap: 12px; }
 .realm-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .realm-head .tile-label { color: var(--muted); }
 .realm-nums { display: flex; gap: 16px; }
 .realm-nums .big { font-size: 26px; }
 .realm-nums small { font-size: 12px; font-weight: 700; color: var(--muted); margin-left: 2px; }
-.map-frame { border-radius: 16px; overflow: hidden; margin-inline: -4px; }
+.map-frame { position: relative; overflow: hidden; margin-inline: -16px; }
+.realm-hero > .map-frame { margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px))); }
+.map-expand { position: absolute; right: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 99px; padding: 8px 12px; background: var(--ink); color: var(--bg); font-size: 12px; font-weight: 900; cursor: pointer; box-shadow: 0 4px 14px var(--shade); }
+.map-expand svg { width: 14px; height: 14px; }
 .worldmap { display: block; width: 100%; height: auto; }
-.worldmap .sea { fill: var(--sea); }
+.worldmap .sea-1 { stop-color: var(--sea-1); }
+.worldmap .sea-2 { stop-color: var(--sea-2); }
+.worldmap .graticule { fill: none; stroke: var(--coast); stroke-width: .6; opacity: .18; }
+.worldmap .hx-base { fill: var(--land-base); }
+.worldmap .hx-base.won { fill: color-mix(in srgb, var(--cover) 62%, #000); }
+.worldmap .hx.wildland { fill: var(--wildland); stroke: var(--wildland); stroke-width: .6; }
+.worldmap .mtn { fill: var(--mtn); pointer-events: none; }
+.worldmap .tree { fill: var(--tree); pointer-events: none; }
+.worldmap .compass circle { fill: none; stroke: var(--coast); stroke-width: 1; opacity: .55; }
+.worldmap .compass .needle-n { fill: var(--coral); }
+.worldmap .compass .needle-s { fill: var(--coast); opacity: .7; }
+.worldmap .compass .needle-ew { fill: var(--coast); opacity: .45; }
+.worldmap .compass text { font-family: var(--font-num); font-size: 9px; font-weight: 700; fill: var(--coast); }
 .worldmap .wave { stroke: var(--wave); stroke-width: 1; }
 .worldmap .hx { stroke: var(--land); stroke-width: .5; cursor: pointer; transform-box: fill-box; transform-origin: center; }
 .worldmap .hx.wild { fill: var(--land); stroke: var(--sea); stroke-opacity: .5; }
@@ -579,9 +595,9 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .worldmap .coast { fill: none; stroke: var(--coast); stroke-width: 1.5; stroke-linecap: round; pointer-events: none; }
 .worldmap .coast-glow { fill: none; stroke: var(--land); stroke-width: 7; opacity: .35; stroke-linecap: round; }
 .worldmap .castle, .lg-castle .castle { fill: var(--butter); stroke: rgb(0 0 0 / .55); stroke-width: .5; stroke-linejoin: round; pointer-events: none; }
-.worldmap .realm-name { font-family: var(--font-body); font-size: 5.6px; font-weight: 700; fill: var(--muted); pointer-events: none; }
-.worldmap .realm-name.on { fill: #FFFFFF; font-weight: 900; }
-.worldmap .continent-name { font-family: var(--font-display); font-size: 8.5px; font-weight: 800; letter-spacing: .25em; fill: var(--sea-text); pointer-events: none; }
+.worldmap .realm-name { font-family: var(--font-body); font-size: 8.5px; paint-order: stroke; stroke: var(--land); stroke-width: 2.4px; stroke-linejoin: round; font-weight: 700; fill: var(--muted); pointer-events: none; }
+.worldmap .realm-name.on { fill: #FFFFFF; font-weight: 900; stroke: rgb(0 0 0 / .35); }
+.worldmap .continent-name { font-family: var(--font-display); font-size: 12px; font-weight: 900; letter-spacing: .4em; fill: var(--sea-text); pointer-events: none; }
 @keyframes conquer { from { opacity: 0; transform: scale(.4); } }
 @keyframes front { 50% { opacity: .55; } }
 .legend-map .lg { width: 13px; height: 13px; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); border: 0; border-radius: 0; }
@@ -590,12 +606,12 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .legend-map .lg-plan { background: color-mix(in srgb, var(--blue) 22%, var(--land)); }
 .lg-wild { background: var(--land); box-shadow: inset 0 0 0 1px var(--line); }
 .lg-castle { width: 16px; height: 14px; }
-.home-realm { display: flex; flex-direction: column; gap: 8px; width: 100%; background: var(--surface); border: 0; border-radius: var(--radius); padding: 14px; text-align: left; cursor: pointer; }
+.home-realm { display: flex; flex-direction: column; gap: 8px; width: auto; background: var(--surface); border: 0; border-radius: 0; padding: 14px max(16px, env(safe-area-inset-left, 0px)); margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px))); text-align: left; cursor: pointer; }
 .home-realm-head { display: flex; justify-content: space-between; align-items: baseline; }
 .home-realm-head .tile-label { color: var(--muted); }
 .home-realm-pct .big { font-size: 32px; }
 .home-realm-pct small { font-size: 14px; font-weight: 700; color: var(--muted); }
-.home-realm .worldmap { border-radius: 14px; }
+.home-realm .worldmap { margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px))); width: calc(100% + 2 * max(16px, env(safe-area-inset-left, 0px))); max-width: none; }
 .home-realm .worldmap .hx { pointer-events: none; }
 .home-realm-foot { font-size: 12px; font-weight: 700; color: var(--blue); text-align: right; }
 
@@ -681,7 +697,7 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .shape-desc { font-size: 14px; line-height: 1.8; }
 .shape-next { font-size: 14px; line-height: 1.7; background: var(--surface-2); border-radius: 12px; padding: 10px 12px; }
 .shape-next strong { color: var(--blue); }
-.worldmap .bridge { fill: none; stroke: var(--butter); stroke-width: 2.2; stroke-dasharray: 5 3; stroke-linecap: round; filter: drop-shadow(0 0 1.5px rgb(0 0 0 / .45)); pointer-events: none; }
+.worldmap .bridge { fill: none; stroke: var(--butter); stroke-width: 3; stroke-dasharray: 5 3; stroke-linecap: round; filter: drop-shadow(0 0 1.5px rgb(0 0 0 / .45)); pointer-events: none; }
 .worldmap .bridge-end { fill: var(--butter); stroke: rgb(0 0 0 / .5); stroke-width: .6; pointer-events: none; }
 .lg-bridge { width: 18px !important; height: 0 !important; border-top: 2.5px dashed var(--butter) !important; border-radius: 0 !important; background: none !important; clip-path: none !important; }
 .bridge-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -689,6 +705,23 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .bridge-list li span { color: var(--ochre, var(--coral)); font-weight: 900; margin-inline: 4px; }
 .bridge-list i { width: 12px; height: 14px; background: var(--cover); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
 .starter { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; background: var(--surface); border-radius: 14px; padding: 10px 12px; }
+
+/* ---------- 地図を全画面で見る ---------- */
+.map-full { position: fixed; inset: 0; z-index: 70; background: var(--sea-2); display: flex; flex-direction: column; }
+.map-full-stage { position: relative; flex: 1; overflow: hidden; touch-action: none; cursor: grab; }
+.map-full-stage:active { cursor: grabbing; }
+.map-full-inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.map-full-inner .worldmap { display: block; max-width: none; }
+.map-full-bar {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) 10px max(14px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(var(--bg), transparent); pointer-events: none;
+}
+.map-full-bar > * { pointer-events: auto; }
+.map-full-title { font-weight: 900; font-size: 15px; }
+.map-full-zoom { position: absolute; right: max(14px, env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 8px; z-index: 2; }
+.map-full-zoom button { width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--surface); color: var(--ink); font-size: 22px; font-weight: 900; box-shadow: 0 4px 14px var(--shade); cursor: pointer; }
+.map-full-hint { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); z-index: 2; font-size: 12px; font-weight: 700; background: var(--ink); color: var(--bg); border-radius: 99px; padding: 6px 12px; white-space: nowrap; opacity: .85; }
 
 /* ---------- 新しいバージョンのお知らせ ---------- */
 .update-bar {
