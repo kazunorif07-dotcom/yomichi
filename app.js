@@ -2597,6 +2597,29 @@ document.addEventListener('error', (e) => {
   if (img.tagName === 'IMG' && img.parentElement?.classList.contains('cover-img')) img.parentElement.classList.add('img-failed');
 }, true);
 
+// 新しいバージョンが公開されていないか確認する（スマホが古いページを覚えていることがあるため）
+const APP_VERSION = 15; // 更新するたびに version.json と一緒に上げる
+async function checkUpdate() {
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    const { version } = await res.json();
+    if (version > APP_VERSION && !$('#update-bar')) {
+      document.body.insertAdjacentHTML('beforeend', `
+        <div class="update-bar" id="update-bar" role="status">
+          <span>新しいバージョンのヨミチがあります</span>
+          <button class="btn btn-primary btn-small" data-action="do-update" data-v="${version}">更新する</button>
+        </div>`);
+    }
+  } catch (e) { /* 電波がないときは何もしない */ }
+}
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action="do-update"]');
+  // URLを変えて開き直すと、保存されていた古いページではなく新しいページを読み込む
+  if (el) location.replace(`${location.pathname}?v=${el.dataset.v}${location.search.includes('emu') ? '&emu' : ''}`);
+});
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
+
 // 起動
+checkUpdate();
 if (!data.settings.seenRealm) markRealmSeen(); // 初回は今の版図を「見た状態」にする（全部が光らないように）
 render();

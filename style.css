@@ -667,6 +667,15 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .switch-row input { width: 22px; height: 22px; accent-color: var(--blue); }
 .week-more { align-self: flex-end; }
 
+/* ---------- 新しいバージョンのお知らせ ---------- */
+.update-bar {
+  position: fixed; z-index: 45; left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
+  top: calc(10px + env(safe-area-inset-top, 0px)); max-width: 536px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--ink); color: var(--bg); border-radius: 16px; padding: 10px 10px 10px 16px; font-size: 14px; font-weight: 700;
+  box-shadow: 0 8px 24px var(--shade);
+}
+
 /* ---------- 通報・ブロック・管理者 ---------- */
 .post-more { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 18px; font-weight: 900; letter-spacing: .1em; padding: 2px 8px; cursor: pointer; border-radius: 8px; }
 .post-more:hover { background: var(--surface-2); }
