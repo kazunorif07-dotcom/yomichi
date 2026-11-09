@@ -667,6 +667,39 @@ body.has-player main.wrap { padding-bottom: calc(var(--tabbar-h) + 104px + env(s
 .switch-row input { width: 22px; height: 22px; accent-color: var(--blue); }
 .week-more { align-self: flex-end; }
 
+/* ---------- 通報・ブロック・管理者 ---------- */
+.post-more { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 18px; font-weight: 900; letter-spacing: .1em; padding: 2px 8px; cursor: pointer; border-radius: 8px; }
+.post-more:hover { background: var(--surface-2); }
+.comment-actions { display: flex; gap: 4px; }
+.reason-list { display: flex; flex-direction: column; gap: 6px; }
+.reason { display: flex; align-items: center; gap: 10px; background: var(--surface); border-radius: 12px; padding: 12px 14px; font-weight: 700; cursor: pointer; }
+.reason input { width: 18px; height: 18px; accent-color: var(--blue); }
+.profile-safety { justify-content: center; }
+.profile-safety .btn { flex: 0 1 auto; color: var(--muted); }
+.admin-card summary { cursor: pointer; font-size: 14px; }
+.admin-card summary strong { color: var(--coral); }
+.report-item { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; border-top: 1px dashed var(--line); }
+.report-head { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.report-snippet { font-size: 13px; background: var(--surface-2); border-radius: 10px; padding: 8px 10px; overflow-wrap: anywhere; }
+.report-note { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.uid-line code { font-size: 11px; user-select: all; overflow-wrap: anywhere; background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+
+/* ---------- プライバシーのページ ---------- */
+.brand-link { color: var(--ink); text-decoration: none; }
+.doc { display: flex; flex-direction: column; gap: 18px; padding-block: 8px 48px; max-width: 640px; }
+.doc h1 { font-size: 24px; font-weight: 900; }
+.doc h2 { font-size: 17px; font-weight: 900; margin-bottom: 8px; }
+.doc h3 { font-size: 14px; font-weight: 900; margin-bottom: 4px; }
+.doc p, .doc li { font-size: 14px; line-height: 1.85; }
+.doc ul { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; }
+.doc a { color: var(--blue); font-weight: 700; }
+.doc .btn { text-decoration: none; color: var(--blue-ink); }
+.doc-date { font-size: 12px; color: var(--muted); }
+.doc section { background: var(--surface); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 8px; }
+.doc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.doc-box { border-radius: 16px; padding: 14px; background: var(--surface-2); }
+.doc-box-share { background: color-mix(in srgb, var(--blue) 14%, var(--surface)); }
+
 /* ---------- バーコード読み取り ---------- */
 .scanner { display: flex; flex-direction: column; gap: 12px; }
 .sc-view-wrap { position: relative; border-radius: 18px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; max-width: 100%; }

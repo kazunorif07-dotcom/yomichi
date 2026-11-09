@@ -7,6 +7,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInWithCredential, onAuthStateChanged, signOut, connectAuthEmulator,
+  deleteUser, reauthenticateWithPopup,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
   getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, updateDoc,
@@ -41,9 +42,16 @@ const S = {
   feed: 'all',       // 'all'（みんな）か 'following'（フォロー中）
   posts: [],
   liked: new Set(),
+  blocked: new Set(), // 自分がブロックした人
+  admin: false,       // 管理者かどうか
+  reports: [],        // 管理者が見る通報の一覧
   loading: false,
   error: '',
 };
+// 通報して自分の画面から隠した投稿・コメント（この端末に覚えておく）
+const hidden = () => (data.settings.hiddenItems = data.settings.hiddenItems || []);
+const isHidden = (id) => hidden().includes(id);
+const REASONS = ['嫌がらせ・悪口', 'スパム・宣伝', '不適切な内容', 'なりすまし', 'その他'];
 
 const sharing = () => data.settings.shareTimeline !== false;
 const tsMs = (t) => (t && t.toMillis ? t.toMillis() : Date.now());
@@ -93,11 +101,15 @@ onAuthStateChanged(auth, async (u) => {
   S.user = u;
   S.profile = null;
   S.following = new Set();
+  S.blocked = new Set();
+  S.admin = false;
   S.posts = [];
   if (u) {
     try {
       await ensureProfile();
       await loadFollowing();
+      await loadBlocks();
+      S.admin = await getDoc(doc(db, 'admins', u.uid)).then((d) => d.exists()).catch(() => false);
       await syncProfile();
     } catch (e) { S.error = '交流機能のデータを読み込めませんでした。'; }
   }
@@ -137,6 +149,11 @@ async function syncProfile() {
   };
   await setDoc(doc(db, 'users', S.user.uid), patch, { merge: true });
   Object.assign(S.profile, patch);
+}
+
+async function loadBlocks() {
+  const snap = await getDocs(collection(db, 'users', S.user.uid, 'blocks'));
+  S.blocked = new Set(snap.docs.map((d) => d.id));
 }
 
 async function loadFollowing() {
@@ -182,7 +199,10 @@ async function loadFeed() {
       posts.sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt));
       posts = posts.slice(0, 40);
     }
-    S.posts = posts;
+    // ブロックした人の投稿と、通報して隠した投稿は出さない
+    S.posts = posts.filter((p) => !S.blocked.has(p.uid) && !isHidden(p.id));
+    posts = S.posts;
+    if (S.admin) await loadReports();
     // 自分がいいねした投稿を調べる
     const likes = await Promise.all(posts.map((p) => getDoc(doc(db, 'posts', p.id, 'likes', S.user.uid)).then((s) => s.exists()).catch(() => false)));
     S.liked = new Set(posts.filter((p, i) => likes[i]).map((p) => p.id));
@@ -219,7 +239,8 @@ function postHtml(p) {
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>${p.likeCount || 0}</button>
           <button class="post-act" data-action="sx-comments" data-id="${p.id}">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>${p.commentCount || 0}</button>
-          ${mine ? `<button class="del-btn" data-action="sx-delete-post" data-id="${p.id}">削除</button>` : ''}
+          ${mine ? `<button class="del-btn" data-action="sx-delete-post" data-id="${p.id}">削除</button>`
+            : `<button class="post-more" data-action="sx-menu" data-id="${p.id}" data-uid="${esc(p.uid)}" aria-label="通報・ブロック">…</button>`}
         </div>
       </div>
     </article>`;
@@ -239,6 +260,7 @@ function render() {
           <li>メモ・感想・積読は、今までどおりスマホの中だけ</li>
           <li>見られるのは、ログインした人だけ</li>
         </ul>
+        <p class="field-hint">ログインすると、<a href="privacy.html" target="_blank" rel="noopener">プライバシーとみんなのルール</a>に同意したことになります。</p>
         ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}
         <button class="btn btn-primary btn-block" data-action="sx-login">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3zM12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22zM6.4 14a6 6 0 0 1 0-3.9V7.5H3.1a10 10 0 0 0 0 9zM12 5.9c1.5 0 2.8.5 3.8 1.5l2.9-2.9A10 10 0 0 0 3.1 7.5L6.4 10C7.2 7.7 9.4 5.9 12 5.9z"/></svg>
@@ -255,6 +277,7 @@ function render() {
     ${tabs}
     ${!sharing() ? '<p class="empty-small">今は記録をタイムラインに投稿しない設定です（右上の歯車から変えられます）。</p>' : ''}
     ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}
+    ${adminHtml()}
     <div class="feed">
       ${S.loading && !S.posts.length ? '<p class="empty-small">読み込み中…</p>'
         : S.posts.length ? S.posts.map(postHtml).join('')
@@ -317,14 +340,17 @@ async function loadComments(p) {
   if (!box) return;
   try {
     const snap = await getDocs(query(collection(db, 'posts', p.id, 'comments'), orderBy('createdAt', 'asc'), limit(100)));
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((c) => !S.blocked.has(c.uid) && !isHidden(c.id));
     box.innerHTML = list.length ? list.map((c) => `
       <div class="comment">
         ${avatarHtml(c.name, c.photo, 32)}
         <div class="comment-body">
           <div class="post-head"><strong class="post-name">${esc(c.name)}</strong><span class="post-time">${timeAgo(tsMs(c.createdAt))}</span></div>
           <p>${esc(c.text)}</p>
-          ${c.uid === S.user.uid || p.uid === S.user.uid ? `<button class="del-btn" data-action="sx-delete-comment" data-id="${c.id}">削除</button>` : ''}
+          <div class="comment-actions">
+            ${c.uid === S.user.uid || p.uid === S.user.uid || S.admin ? `<button class="del-btn" data-action="sx-delete-comment" data-id="${c.id}">削除</button>` : ''}
+            ${c.uid !== S.user.uid ? `<button class="del-btn" data-action="sx-report" data-type="comment" data-id="${c.id}" data-uid="${esc(c.uid)}" data-post="${p.id}">通報</button>` : ''}
+          </div>
         </div>
       </div>`).join('') : '<p class="empty-small">まだコメントはありません。最初のひとことをどうぞ。</p>';
   } catch (e) {
@@ -410,6 +436,7 @@ async function openProfile(uid) {
           </div>
         </div>
         ${me ? '<button class="btn btn-ghost btn-small" data-action="settings">名前や投稿の設定を変える</button>'
+          : S.blocked.has(uid) ? `<p class="empty-small">このユーザーをブロックしています。</p><button class="btn btn-ghost btn-block" data-action="sx-unblock" data-uid="${esc(uid)}">ブロックを解除</button>`
           : `<button class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-block" data-action="sx-follow" data-uid="${esc(uid)}">${isFollowing ? 'フォロー中（押すと解除）' : 'フォローする'}</button>`}
         <div class="kpis">
           <div><small>連続読書</small><span class="big">${u.streak || 0}<small>日</small></span></div>
@@ -427,8 +454,12 @@ async function openProfile(uid) {
         </section>
         <div class="section">
           <h4 class="section-title">最近の記録</h4>
-          ${posts.length ? `<div class="list">${posts.map((p) => `<div class="mini-post"><span>『${esc(p.book?.title || '')}』${p.kind === 'finish' ? 'を読了' : `・${fmtMinutes(p.minutes)}・${p.pages}p`}</span><span class="post-time">${timeAgo(tsMs(p.createdAt))}</span></div>`).join('')}</div>` : '<p class="empty-small">まだ記録がありません。</p>'}
+          ${S.blocked.has(uid) ? '' : posts.length ? `<div class="list">${posts.map((p) => `<div class="mini-post"><span>『${esc(p.book?.title || '')}』${p.kind === 'finish' ? 'を読了' : `・${fmtMinutes(p.minutes)}・${p.pages}p`}</span><span class="post-time">${timeAgo(tsMs(p.createdAt))}</span></div>`).join('')}</div>` : '<p class="empty-small">まだ記録がありません。</p>'}
         </div>
+        ${me ? '' : `<div class="btn-row profile-safety">
+          ${S.blocked.has(uid) ? '' : `<button class="btn btn-ghost btn-small" data-action="sx-block" data-uid="${esc(uid)}">ブロックする</button>`}
+          <button class="btn btn-ghost btn-small" data-action="sx-report" data-type="user" data-id="${esc(uid)}" data-uid="${esc(uid)}">通報する</button>
+        </div>`}
       </div>`;
   } catch (e) {
     if (sheetMode === 'profile') $('#sheet-body').innerHTML = '<p class="error">プロフィールを読み込めませんでした。</p>';
@@ -452,12 +483,171 @@ async function toggleFollow(uid) {
   } catch (e) { toast('フォローできませんでした'); }
 }
 
+/* ---------- 通報・ブロック ---------- */
+function openPostMenu(id, uid) {
+  const p = S.posts.find((x) => x.id === id);
+  openSheet('この投稿について', `
+    <div class="form">
+      ${p ? postSummary(p) : ''}
+      <button class="btn btn-ghost btn-block" data-action="sx-report" data-type="post" data-id="${id}" data-uid="${esc(uid)}">この投稿を通報する</button>
+      <button class="btn btn-ghost btn-block" data-action="sx-block" data-uid="${esc(uid)}">${esc(p ? p.name : 'このユーザー')}さんをブロックする</button>
+      <p class="field-hint">ブロックすると、相手の投稿とコメントがあなたに表示されなくなり、相手はあなたの投稿にコメント・いいね・フォローができなくなります。ブロックしたことは相手に通知されません。</p>
+    </div>`, 'menu');
+}
+
+function openReport(type, id, uid, postId) {
+  const what = { post: '投稿', comment: 'コメント', user: 'ユーザー' }[type];
+  openSheet(`${what}を通報`, `
+    <form class="form" id="sx-report-form" data-type="${type}" data-id="${esc(id)}" data-uid="${esc(uid)}" data-post="${esc(postId || '')}" novalidate>
+      <div class="field"><span class="field-label">理由</span>
+        <div class="reason-list">${REASONS.map((r, i) => `
+          <label class="reason"><input type="radio" name="sx-reason" value="${r}" ${i === 0 ? 'checked' : ''}><span>${r}</span></label>`).join('')}</div></div>
+      <div class="field"><label for="sx-report-note">くわしく（任意・300文字まで）</label>
+        <textarea class="input" id="sx-report-note" rows="3" maxlength="300"></textarea></div>
+      <p class="field-hint">通報は管理者だけが見ます。相手に、あなたが通報したことは伝わりません。${type !== 'user' ? 'この' + what + 'は、あなたの画面からすぐに見えなくなります。' : ''}</p>
+      <button class="btn btn-primary btn-block" type="submit">通報する</button>
+    </form>`, 'report');
+}
+
+async function submitReport(form) {
+  const { type, id, uid, post } = form.dataset;
+  const reason = form.querySelector('input[name="sx-reason"]:checked').value;
+  const note = $('#sx-report-note').value.trim().slice(0, 300);
+  // 管理者が判断できるよう、通報した時点の内容も一緒に送る
+  let snippet = '';
+  if (type === 'post') { const p = S.posts.find((x) => x.id === id); snippet = p ? `『${p.book?.title || ''}』${p.kind === 'finish' ? '読了' : `${p.minutes}分`}` : ''; }
+  if (type === 'comment') snippet = ($(`[data-action="sx-report"][data-id="${id}"]`)?.closest('.comment-body')?.querySelector('p')?.textContent || '').slice(0, 300);
+  try {
+    await addDoc(collection(db, 'reports'), {
+      reporter: S.user.uid, type, targetId: id, targetUid: uid, postId: post || '', reason, note, snippet, createdAt: serverTimestamp(),
+    });
+    if (type !== 'user') { hidden().push(id); save(); }
+    S.posts = S.posts.filter((p) => !isHidden(p.id));
+    closeSheet();
+    render();
+    toast('通報しました。ご協力ありがとうございます');
+  } catch (e) { toast('通報を送れませんでした。電波を確認してください'); }
+}
+
+async function blockUser(uid) {
+  if (uid === S.user.uid) return;
+  try {
+    // お互いのフォローも外す（フォローがあるときだけ。ないものを消そうとするとルールで止められる）
+    const mine = doc(db, 'follows', `${S.user.uid}_${uid}`);
+    const theirs = doc(db, 'follows', `${uid}_${S.user.uid}`);
+    const [m, t] = await Promise.all([getDoc(mine), getDoc(theirs)]);
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', S.user.uid, 'blocks', uid), { createdAt: serverTimestamp() });
+    if (m.exists()) batch.delete(mine);
+    if (t.exists()) batch.delete(theirs);
+    await batch.commit();
+    S.blocked.add(uid);
+    S.following.delete(uid);
+    S.posts = S.posts.filter((p) => p.uid !== uid);
+    closeSheet();
+    render();
+    toast('ブロックしました');
+  } catch (e) { toast('ブロックできませんでした'); }
+}
+
+async function unblockUser(uid) {
+  try {
+    await deleteDoc(doc(db, 'users', S.user.uid, 'blocks', uid));
+    S.blocked.delete(uid);
+    toast('ブロックを解除しました');
+    if (sheetMode === 'profile') openProfile(uid); else if (sheetMode) openSettings();
+    loadFeed();
+  } catch (e) { toast('解除できませんでした'); }
+}
+
+/* ---------- 管理者：通報の確認 ---------- */
+async function loadReports() {
+  try {
+    const snap = await getDocs(query(collection(db, 'reports'), orderBy('createdAt', 'desc'), limit(50)));
+    S.reports = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (e) { S.reports = []; }
+}
+
+function adminHtml() {
+  if (!S.admin) return '';
+  return `
+    <details class="card admin-card" ${S.reports.length ? 'open' : ''}>
+      <summary><strong>管理者：通報 ${S.reports.length}件</strong></summary>
+      ${S.reports.length ? S.reports.map((r) => `
+        <div class="report-item">
+          <div class="report-head"><span class="badge">${{ post: '投稿', comment: 'コメント', user: 'ユーザー' }[r.type]}</span><strong>${esc(r.reason)}</strong><span class="post-time">${timeAgo(tsMs(r.createdAt))}</span></div>
+          ${r.snippet ? `<p class="report-snippet">${esc(r.snippet)}</p>` : ''}
+          ${r.note ? `<p class="report-note">メモ：${esc(r.note)}</p>` : ''}
+          <div class="btn-row">
+            ${r.type === 'post' ? `<button class="btn btn-danger btn-small" data-action="sx-admin-del-post" data-id="${esc(r.targetId)}" data-report="${r.id}">投稿を削除</button>` : ''}
+            ${r.type === 'comment' ? `<button class="btn btn-danger btn-small" data-action="sx-admin-del-comment" data-id="${esc(r.targetId)}" data-post="${esc(r.postId)}" data-report="${r.id}">コメントを削除</button>` : ''}
+            <button class="btn btn-ghost btn-small" data-action="sx-profile" data-uid="${esc(r.targetUid)}">相手を見る</button>
+            <button class="btn btn-ghost btn-small" data-action="sx-admin-dismiss" data-report="${r.id}">対応済みにする</button>
+          </div>
+        </div>`).join('') : '<p class="empty-small">未対応の通報はありません。</p>'}
+    </details>`;
+}
+
+async function adminAct(action, el) {
+  const { id, post, report } = el.dataset;
+  try {
+    const batch = writeBatch(db);
+    if (action === 'post') batch.delete(doc(db, 'posts', id));
+    if (action === 'comment') { batch.delete(doc(db, 'posts', post, 'comments', id)); batch.update(doc(db, 'posts', post), { commentCount: increment(-1) }); }
+    batch.delete(doc(db, 'reports', report));
+    await batch.commit();
+    S.reports = S.reports.filter((r) => r.id !== report);
+    toast(action === 'dismiss' ? '対応済みにしました' : '削除しました');
+    loadFeed();
+  } catch (e) {
+    // 投稿がもう消えていた場合などは、通報だけ片付ける
+    try { await deleteDoc(doc(db, 'reports', report)); S.reports = S.reports.filter((r) => r.id !== report); render(); } catch (e2) { /* 何もしない */ }
+    toast('対象はすでに削除されていました');
+  }
+}
+
+/* ---------- アカウントと共有データの削除 ---------- */
+async function deleteAccount() {
+  const uid = S.user.uid;
+  toast('削除しています…');
+  try {
+    // 自分の投稿・フォロー・ブロック・プロフィールを消す
+    const [posts, fromMe, toMe, blocks] = await Promise.all([
+      getDocs(query(collection(db, 'posts'), where('uid', '==', uid))),
+      getDocs(query(collection(db, 'follows'), where('from', '==', uid))),
+      getDocs(query(collection(db, 'follows'), where('to', '==', uid))),
+      getDocs(collection(db, 'users', uid, 'blocks')),
+    ]);
+    const refs = [...posts.docs, ...fromMe.docs, ...toMe.docs, ...blocks.docs].map((d) => d.ref);
+    refs.push(doc(db, 'users', uid));
+    for (let i = 0; i < refs.length; i += 400) {
+      const batch = writeBatch(db);
+      refs.slice(i, i + 400).forEach((r) => batch.delete(r));
+      await batch.commit();
+    }
+    // ログインの情報も消す（しばらく前にログインした場合は、もう一度ログインの確認が出る）
+    try { await deleteUser(auth.currentUser); }
+    catch (e) {
+      if (e.code === 'auth/requires-recent-login' && !EMU) { await reauthenticateWithPopup(auth.currentUser, new GoogleAuthProvider()); await deleteUser(auth.currentUser); }
+      else if (!EMU) throw e;
+      else await signOut(auth);
+    }
+    data.settings.shareTimeline = true;
+    save();
+    closeSheet();
+    toast('アカウントと共有データを削除しました。スマホの中の記録は残っています');
+  } catch (e) {
+    toast('削除を最後まで終えられませんでした。もう一度お試しください');
+  }
+}
+
 /* ---------- 設定画面に出すアカウントの欄 ---------- */
 function settingsHtml() {
   if (!S.user) {
     return `<div class="form backup"><h3 class="section-title">みんなの読書（交流機能）</h3>
       <p class="field-hint">ログインすると、読書記録と知の版図をみんなと共有できます。</p>
-      <button class="btn btn-ghost btn-block" data-action="sx-login">Googleでログイン</button></div>`;
+      <button class="btn btn-ghost btn-block" data-action="sx-login">Googleでログイン</button>
+      <a class="link-btn" href="privacy.html" target="_blank" rel="noopener">プライバシーとみんなのルール</a></div>`;
   }
   return `<div class="form backup">
     <h3 class="section-title">みんなの読書（交流機能）</h3>
@@ -465,8 +655,24 @@ function settingsHtml() {
       <div class="search-row"><input class="input" id="sx-name" maxlength="30" value="${esc(S.profile?.name || '')}"><button class="btn btn-ghost" data-action="sx-save-name">保存</button></div>
       <span class="field-hint">本名でなくても大丈夫です。</span></div>
     <label class="switch-row"><input type="checkbox" id="sx-share" ${sharing() ? 'checked' : ''}><span>読書を記録したら、タイムラインに投稿する</span></label>
-    <button class="btn btn-ghost btn-small" data-action="sx-logout">ログアウト</button>
+    <div class="field"><span class="field-label">ブロックしたユーザー（${S.blocked.size}人）</span>
+      <div id="sx-blocked-list" class="list"><p class="field-hint">${S.blocked.size ? '読み込み中…' : 'いません。'}</p></div></div>
+    <a class="link-btn" href="privacy.html" target="_blank" rel="noopener">プライバシーとみんなのルール</a>
+    <div class="btn-row">
+      <button class="btn btn-ghost btn-small" data-action="sx-logout">ログアウト</button>
+      <button class="btn btn-danger btn-small" data-action="sx-delete-account">アカウントと共有データを削除</button>
+    </div>
+    <p class="field-hint">削除すると、タイムラインの投稿・プロフィール・フォローが消えます。スマホの中の記録やメモは残ります。</p>
+    <p class="field-hint uid-line">あなたのユーザーID：<code>${esc(S.user.uid)}</code></p>
   </div>`;
+}
+
+// 設定画面のブロック一覧に、名前を入れる
+async function fillBlockedList() {
+  const box = $('#sx-blocked-list');
+  if (!box || !S.user || !S.blocked.size) return;
+  const users = await Promise.all([...S.blocked].map((uid) => getDoc(doc(db, 'users', uid)).then((d) => ({ uid, name: d.exists() ? d.data().name : '（退会したユーザー）' })).catch(() => ({ uid, name: '？' }))));
+  box.innerHTML = users.map((u) => `<div class="mini-post"><span>${esc(u.name)}</span><button class="del-btn" data-action="sx-unblock" data-uid="${esc(u.uid)}">解除</button></div>`).join('');
 }
 
 async function saveName() {
@@ -495,6 +701,14 @@ document.addEventListener('click', (e) => {
     case 'sx-save-name': saveName(); break;
     case 'sx-delete-post': armOrRun(el, () => deletePost(id)); break;
     case 'sx-delete-comment': armOrRun(el, () => deleteComment(id)); break;
+    case 'sx-menu': openPostMenu(id, uid); break;
+    case 'sx-report': openReport(el.dataset.type, id, uid, el.dataset.post); break;
+    case 'sx-block': armOrRun(el, () => blockUser(uid)); break;
+    case 'sx-unblock': unblockUser(uid); break;
+    case 'sx-admin-del-post': armOrRun(el, () => adminAct('post', el)); break;
+    case 'sx-admin-del-comment': armOrRun(el, () => adminAct('comment', el)); break;
+    case 'sx-admin-dismiss': adminAct('dismiss', el); break;
+    case 'sx-delete-account': armOrRun(el, deleteAccount); break;
   }
 });
 document.addEventListener('change', (e) => {
@@ -503,11 +717,12 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('submit', (e) => {
   if (e.target.id === 'sx-comment-form') { e.preventDefault(); sendComment(); }
+  if (e.target.id === 'sx-report-form') { e.preventDefault(); submitReport(e.target); }
 });
 
 // app.js から使えるように公開
 window.social = {
-  render, afterSession, settingsHtml, onShow: () => { render(); if (S.user) loadFeed(); },
+  render, afterSession, settingsHtml, afterSettings: fillBlockedList, onShow: () => { render(); if (S.user) loadFeed(); },
   isLoggedIn: () => !!S.user, testLogin,
 };
 rerender();

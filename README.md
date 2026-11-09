@@ -15,6 +15,7 @@
 - Markdown書き出し（AIに次に読む本を相談する質問文つき）
 - データのコピー／貼り付けによる引っ越し・バックアップ
 - みんなの読書（Googleログイン）：タイムライン（みんな／フォロー中）、いいね、コメント、フォロー、プロフィールに知の版図
+- 安全のための機能：ブロック、通報（管理者だけが確認・削除できる）、アカウントと共有データの削除、プライバシーとみんなのルール（privacy.html）
 
 ## 交流機能のサーバー
 Firebase（Authentication と Firestore）を使っています。データベースのルールは `firestore.rules` にあり、Firebase コンソールの Firestore →「ルール」に貼り付けて公開します。共有されるのは読書記録と知の版図だけで、メモ・感想・積読は端末の中にだけ保存されます。
@@ -27,6 +28,7 @@ Firebase（Authentication と Firestore）を使っています。データベ�
 | `app.js` | 動き（保存・計算・描画・タイマー） |
 | `social.js` | 交流機能（Firebase） |
 | `firestore.rules` | データベースのルール（誰が何を読み書きできるか） |
+| `privacy.html` | プライバシーとみんなのルール |
 | `manifest.webmanifest`, `icons/` | ホーム画面に追加したときの名前とアイコン |
 
 本の検索には Google Books API・国立国会図書館サーチ・Open Library を使っています（Google Books が回数制限のときは、残りの2つで自動的に検索します）。分野は国立国会図書館の分類番号（NDC）から自動で判定します。

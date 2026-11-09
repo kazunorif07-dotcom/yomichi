@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#3550F0">
+<title>プライバシーとみんなのルール｜ヨミチ</title>
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Unbounded:wght@500;700&display=swap">
+<link rel="stylesheet" href="style.css?v=14">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="brand brand-link" href="./">ヨミチ<span class="brand-dot" aria-hidden="true"></span></a>
+  </div>
+</header>
+
+<main class="wrap doc">
+  <h1>プライバシーとみんなのルール</h1>
+  <p class="doc-date">最終更新：2026年11月9日</p>
+
+  <p>ヨミチは、読書の記録をつけて、読んだ分野で自分だけの「知の版図」をつくるアプリです。このページでは、あなたのデータがどこに保存され、誰に見えるのかと、みんなで気持ちよく使うためのルールをまとめています。</p>
+
+  <section>
+    <h2>まとめ</h2>
+    <div class="doc-grid">
+      <div class="doc-box"><h3>スマホの中だけ</h3><p>本の一覧、読書の記録、メモ、感想、積読、表紙の写真、目標</p></div>
+      <div class="doc-box doc-box-share"><h3>みんなと共有</h3><p>ログインして投稿をオンにしている場合の、読書記録（本・時間・ページ）とプロフィール（名前・アイコン・連続日数・読了冊数・知の版図）</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>1. スマホの中に保存されるもの</h2>
+    <p>ヨミチに入力したデータは、基本的に<strong>あなたのスマホのブラウザの中</strong>（localStorage）にだけ保存されます。開発者を含め、ほかの人が見ることはできません。</p>
+    <ul>
+      <li>ブラウザの「サイトデータを消去」をしたり、プライベートブラウズで使ったりすると消えます。</li>
+      <li>機種変更のときは、設定の「データをコピーする」で持っていけます。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>2. みんなと共有されるもの（ログインした場合だけ）</h2>
+    <p>「みんな」タブでGoogleアカウントでログインすると、次の情報が Google の Firebase（サーバー）に保存され、<strong>ログインしているヨミチの利用者</strong>が見られるようになります。</p>
+    <ul>
+      <li><strong>プロフィール：</strong>表示名（変更できます）、Googleアカウントのアイコン、連続読書日数、読了冊数、今週の読書時間、知の版図（分野ごとの領土）と超えた帝国</li>
+      <li><strong>投稿：</strong>読書を記録したときの本のタイトル・著者・分野・表紙（ネットの画像のみ）・読んだ時間・ページ数。設定の「タイムラインに投稿する」をオフにすると投稿されません。</li>
+      <li><strong>いいね・コメント・フォロー</strong></li>
+    </ul>
+    <p><strong>共有されないもの：</strong>メモ、引用、感想、つながり、積読・欲しい本の一覧、自分で撮った表紙の写真、メールアドレス。</p>
+    <p>Googleアカウントから受け取るのは、ログインに必要な情報（ユーザーID、名前、アイコン、メールアドレス）だけです。メールアドレスは、ほかの利用者には表示されません。</p>
+  </section>
+
+  <section>
+    <h2>3. 外部のサービスに送られるもの</h2>
+    <ul>
+      <li><strong>本の検索：</strong>検索した言葉やバーコードの番号（ISBN）が、Google Books・国立国会図書館サーチ・Open Library に送られます。</li>
+      <li><strong>表紙の画像：</strong>表紙を表示するときに、Google Books などの画像を読み込みます。</li>
+      <li><strong>カメラ：</strong>バーコードの読み取りにカメラを使いますが、映像はスマホの中で処理され、どこにも送られません。</li>
+      <li><strong>書体：</strong>Google Fonts から読み込みます。</li>
+    </ul>
+    <p>これらのサービスでの情報の扱いは、それぞれのサービスのプライバシーポリシーに従います。</p>
+  </section>
+
+  <section>
+    <h2>4. データの削除</h2>
+    <ul>
+      <li><strong>投稿・コメント：</strong>自分の投稿と、自分のコメントはいつでも削除できます。自分の投稿に付いたコメントも削除できます。</li>
+      <li><strong>アカウント：</strong>右上の歯車 →「アカウントと共有データを削除」で、プロフィール・投稿・フォローとログインの情報を削除できます。スマホの中の記録は残ります。</li>
+      <li>ほかの人の投稿に書いたコメントは、アカウントを削除しても残ります。気になる場合は、削除の前に消しておいてください。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>5. みんなのルール</h2>
+    <p>ヨミチは、読書を続ける人どうしが励まし合う場所です。次のことはしないでください。</p>
+    <ul>
+      <li>悪口、嫌がらせ、差別、しつこいコメント</li>
+      <li>宣伝、勧誘、同じ内容の繰り返し（スパム）</li>
+      <li>他人になりすますこと、他人の個人情報を書くこと</li>
+      <li>暴力的・性的など、不適切な内容</li>
+      <li>アプリやサーバーに負担をかけたり、仕組みを悪用したりすること</li>
+    </ul>
+    <p>ルールに反する投稿やコメントは、管理者が削除することがあります。</p>
+  </section>
+
+  <section>
+    <h2>6. 嫌なことがあったら</h2>
+    <ul>
+      <li><strong>ブロック：</strong>相手のプロフィールや投稿の「…」から。相手の投稿とコメントが見えなくなり、相手はあなたの投稿にコメント・いいね・フォローができなくなります。ブロックしたことは相手に通知されません。</li>
+      <li><strong>通報：</strong>投稿・コメント・ユーザーを、理由を選んで通報できます。通報は管理者だけが見て、内容を確認します。通報したことは相手に伝わりません。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>7. お問い合わせ</h2>
+    <p>このページや、データの扱いについての質問は、<a href="https://github.com/kazunorif07-dotcom/yomichi/issues" target="_blank" rel="noopener">ヨミチのGitHubページ（Issues）</a>からお送りください。</p>
+    <p>内容を変更するときは、このページでお知らせします。</p>
+  </section>
+
+  <a class="btn btn-primary btn-block" href="./">ヨミチに戻る</a>
+</main>
+</body>
+</html>

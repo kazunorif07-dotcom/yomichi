@@ -1612,6 +1612,7 @@ function openSettings() {
       <p class="error" id="bk-error" hidden></p>
       <button class="btn btn-danger btn-block" data-action="import-json">読み込む（今のデータと置き換え）</button>
     </div>`);
+  window.social?.afterSettings?.(); // ブロック一覧に名前を入れる（social.js）
 }
 
 // 全データを文字にしてコピーする（コピーできない環境では、文字を表示して選択状態にする）
