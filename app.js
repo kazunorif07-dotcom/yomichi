@@ -334,6 +334,7 @@ function render() {
   if (currentView === 'history') renderHistory();
   if (currentView === 'map') renderMap();
   if (currentView === 'stats') renderStats();
+  if (currentView === 'social') window.social ? window.social.render() : ($('#view-social').innerHTML = '<p class="empty-small">交流機能を読み込み中です。電波がない場所では使えません。</p>');
   renderPlayer();
 }
 
@@ -426,6 +427,7 @@ function renderHome() {
           </div>
         </div>
         ${compare ? `<span class="compare ${diff >= 0 ? 'up' : 'down'}">${compare}</span>` : ''}
+        <button class="link-btn week-more" data-action="go" data-view="stats">くわしいグラフを見る →</button>
         <div class="week-bars" aria-label="曜日ごとの読書分数">
           <div class="goal-line" style="bottom:${Math.round((goal / top) * barsH) + 22}px" aria-hidden="true"></div>
           ${bars}
@@ -618,8 +620,8 @@ function worldStats() {
 }
 
 // 六角形の地図をSVGで描く。mini=true はホーム用（文字なし・小さめ）
-function worldMapSvg({ mini = false } = {}) {
-  const { realms } = worldStats();
+function worldMapSvg({ mini = false, realms = null, interactive = true } = {}) {
+  realms = realms || worldStats().realms; // 他の人のプロフィールでは、その人の版図を渡す
   const S = 10; // 六角形1つの大きさ
   const R3 = Math.sqrt(3);
   const px = (q, r) => [S * R3 * (q + r / 2), S * 1.5 * r];
@@ -654,7 +656,7 @@ function worldMapSvg({ mini = false } = {}) {
     const front = !won && realm.front && t.k === realm.conquered;
     const cls = won ? 'hx won' : front ? 'hx front' : realm.planned ? 'hx plan' : 'hx wild';
     const delay = won ? `style="--cover:${FIELD_COLORS[t.field]};animation-delay:${(t.k * 60)}ms"` : `style="--cover:${FIELD_COLORS[t.field]}"`;
-    return `<polygon class="${cls}" points="${pts}" ${delay} data-action="open-field" data-field="${esc(t.field)}"/>`;
+    return `<polygon class="${cls}" points="${pts}" ${delay} ${interactive ? `data-action="open-field" data-field="${esc(t.field)}"` : ''}/>`;
   }).join('');
 
   // 国境と海岸線：となりのマスが別の国（または海）なら、その辺に線を引く
@@ -1480,6 +1482,8 @@ function addSession({ book, date, minutes, startPage, endPage, source }) {
 
   save();
   render();
+  // ログインしていれば、タイムラインに投稿してプロフィールを更新（social.js）
+  window.social?.afterSession({ book, minutes, pages: endPage - startPage, finished });
   if (finished) openReviewForm(book.id, true); // 読了したら、感想とつながりを書く画面へ
   else closeSheet();
   toast(msg);
@@ -1500,6 +1504,7 @@ function openSettings() {
         <span class="field-hint">ホームの「読書チャレンジ」に達成率が出ます。</span></div>
       <button class="btn btn-primary btn-block" type="submit">目標を保存する</button>
     </form>
+    ${window.social ? window.social.settingsHtml() : ''}
     <div class="form backup">
       <h3 class="section-title">Markdownで書き出す</h3>
       <p class="field-hint">読了本の一覧・分野別の冊数・感想・メモをまとめます。ChatGPT や Claude などのAIに貼り付けると、次に読む本を相談できます（相談用の質問文つき）。</p>
@@ -2208,10 +2213,11 @@ function go(view) {
   currentView = view;
   document.querySelectorAll('.view').forEach((v) => { v.hidden = v.id !== `view-${view}`; });
   document.querySelectorAll('.tab[data-view]').forEach((t) => {
-    if (t.dataset.view === view || (view === 'history' && t.dataset.view === 'home')) t.setAttribute('aria-current', 'page');
+    if (t.dataset.view === view || ((view === 'history' || view === 'stats') && t.dataset.view === 'home')) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
   });
   render();
+  if (view === 'social') window.social?.onShow();
   window.scrollTo(0, 0);
 }
 

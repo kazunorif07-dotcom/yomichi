@@ -1,0 +1,62 @@
+rules_version = '2';
+// ヨミチのデータベースのルール（誰が何を読めて、何を書けるか）
+//   ・読めるのはログインした人だけ
+//   ・プロフィールと投稿は、本人しか作れない・消せない
+//   ・他人の投稿で変えられるのは「いいね数」「コメント数」を1ずつ増減することだけ
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isMe(uid) { return signedIn() && request.auth.uid == uid; }
+    function shortText(v, max) { return v is string && v.size() > 0 && v.size() <= max; }
+
+    // プロフィール（名前・連続日数・読了冊数・知の版図）
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isMe(uid) && shortText(request.resource.data.name, 30);
+      allow delete: if isMe(uid);
+    }
+
+    // フォロー（ID は「フォローする人のID_される人のID」）
+    match /follows/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.to is string
+        && request.resource.data.to != request.auth.uid
+        && id == request.auth.uid + '_' + request.resource.data.to;
+      allow delete: if signedIn() && resource.data.from == request.auth.uid;
+    }
+
+    // 読書記録の投稿
+    match /posts/{postId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.likeCount == 0
+        && request.resource.data.commentCount == 0
+        && shortText(request.resource.data.book.title, 200);
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'commentCount'])
+        && request.resource.data.likeCount >= 0 && request.resource.data.commentCount >= 0
+        && math.abs(request.resource.data.likeCount - resource.data.likeCount) <= 1
+        && math.abs(request.resource.data.commentCount - resource.data.commentCount) <= 1;
+
+      // いいね（ID は いいねした人のID）
+      match /likes/{uid} {
+        allow read: if signedIn();
+        allow create, delete: if isMe(uid);
+      }
+
+      // コメント（300文字まで。消せるのは書いた本人と投稿者）
+      match /comments/{commentId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.uid == request.auth.uid
+          && shortText(request.resource.data.text, 300);
+        allow delete: if signedIn() && (resource.data.uid == request.auth.uid
+          || get(/databases/$(database)/documents/posts/$(postId)).data.uid == request.auth.uid);
+      }
+    }
+  }
+}
