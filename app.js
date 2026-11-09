@@ -393,7 +393,7 @@ function renderHome() {
         <span class="home-realm-pct"><span class="big">${world.pct}</span><small>%</small></span>
       </div>
       ${worldMapSvg({ mini: true })}
-      <span class="home-realm-foot">${fieldStats().filter((s) => s.done).length}／18か国に進出・地図を開く →</span>
+      <span class="home-realm-foot">${(() => { const c = empireCompare(world.conquered); return c.passed ? `${c.passed.name}超え・` : ''; })()}${fieldStats().filter((s) => s.done).length}／18か国に進出・地図を開く →</span>
     </button>
     <div class="bento">
       <div class="tile tile-coral">
@@ -549,6 +549,60 @@ const WORLD = [
   { name: 'テクノロジー', cells: [[3, 3], [4, 3]], fields: ['コンピュータ・AI', '工学・エネルギー'] },
 ];
 const TOTAL_HEX = FIELDS.length * 7;
+
+// 歴史上の帝国（最盛期のおおよその面積）。知の世界全体を地球の陸地（約1億4890万km²）に見立てて比べる。
+const EMPIRES = [
+  { name: '古代エジプト（新王国）', era: '前15世紀', km2: 1.0 },
+  { name: 'アッシリア帝国', era: '前7世紀', km2: 1.4 },
+  { name: 'ローマ帝国', era: '2世紀', km2: 5.0 },
+  { name: 'アレクサンドロス大王の帝国', era: '前4世紀', km2: 5.2 },
+  { name: 'アケメネス朝ペルシア', era: '前5世紀', km2: 5.5 },
+  { name: '漢', era: '前1世紀', km2: 6.0 },
+  { name: 'ウマイヤ朝', era: '8世紀', km2: 11.1 },
+  { name: 'スペイン帝国', era: '18世紀', km2: 13.7 },
+  { name: '清', era: '18世紀', km2: 14.7 },
+  { name: 'ロシア帝国', era: '19世紀', km2: 22.8 },
+  { name: 'モンゴル帝国', era: '13世紀', km2: 24.0 },
+  { name: '大英帝国', era: '20世紀', km2: 35.5 },
+].map((e) => ({ ...e, pct: (e.km2 / 148.9) * 100 }));
+
+// 今の版図がどの帝国を超えたか、次はどの帝国か
+function empireCompare(conquered) {
+  const pct = (conquered / TOTAL_HEX) * 100;
+  const passed = [...EMPIRES].reverse().find((e) => e.pct <= pct);
+  const next = EMPIRES.find((e) => e.pct > pct);
+  const hexesTo = next ? Math.ceil((next.pct / 100) * TOTAL_HEX) - conquered : 0;
+  const myKm2 = (pct / 100) * 148.9;
+  return { pct, passed, next, hexesTo, myKm2 };
+}
+
+function empireHtml(conquered) {
+  const c = empireCompare(conquered);
+  const max = 30; // ものさしの右端（%）。大英帝国（約24%）が入る幅
+  // 小さい帝国が集まっているので、平方根の目盛りにして間を広げる
+  const pos = (p) => Math.min(100, Math.sqrt(p / max) * 100);
+  const LABELED = ['古代エジプト（新王国）', 'ローマ帝国', 'ウマイヤ朝', '清', 'モンゴル帝国', '大英帝国'];
+  const headline = !conquered ? 'まだ領土がありません。1冊読めば、古代エジプトを超えます。'
+    : c.next ? `あなたの版図（約${Math.round(c.myKm2 * 100).toLocaleString()}万km²相当）は、${c.passed ? `<strong>${c.passed.name}</strong>（${c.passed.era}）を超えました。` : ''}次は<strong>${c.next.name}</strong>まで、あと${c.hexesTo}マス（読了およそ${c.hexesTo}冊分）。`
+    : `人類史上のどの帝国よりも広い版図です。${conquered >= TOTAL_HEX ? '知の世界を統一しました！' : `残る未開の地は${TOTAL_HEX - conquered}マス。`}`;
+  return `
+    <section class="card empire-card">
+      <div class="card-head"><h3>歴史の帝国とくらべる</h3><span class="field-hint">知の世界＝地球の陸地として</span></div>
+      <p class="empire-head">${headline}</p>
+      <div class="empire-ruler" aria-hidden="true">
+        <div class="empire-track"><i style="width:${pos(c.pct)}%"></i></div>
+        ${EMPIRES.map((e) => {
+          const li = LABELED.indexOf(e.name);
+          return `<span class="empire-tick ${e.pct <= c.pct ? 'passed' : ''} ${li % 2 === 1 ? 'low' : ''}" style="left:${pos(e.pct)}%"><b></b>${li >= 0 ? `<em>${e.name.replace(/（.*）/, '').replace('帝国', '')}</em>` : ''}</span>`;
+        }).join('')}
+        <span class="empire-me" style="left:${Math.min(88, Math.max(8, pos(c.pct)))}%">あなた</span>
+      </div>
+      <details class="empire-list"><summary>帝国の一覧（最盛期の面積）</summary>
+        <ol>${EMPIRES.map((e) => `<li class="${e.pct <= c.pct ? 'passed' : ''}"><span>${e.name}<small>${e.era}</small></span><span class="num">${Math.round(e.km2 * 100).toLocaleString()}万km²・${e.pct.toFixed(1)}%</span></li>`).join('')}</ol>
+        <p class="field-hint">面積は最盛期のおおよその値です。資料によって差があります。</p>
+      </details>
+    </section>`;
+}
 
 // 国ごとの状態：何マス制覇したか、城があるか、最前線（読書中）か、予定地（積読）か
 function realmOf(s) {
@@ -710,6 +764,7 @@ function renderMap() {
         <span><svg class="lg-castle" viewBox="-6 -5 12 10" aria-hidden="true"><path class="castle" d="M-5,4v-6h2v2h2v-3h2v3h2v-2h2v6z"/></svg>城（幹を読了）</span>
       </div>
     </section>
+    ${empireHtml(world.conquered)}
     ${ranking.length ? `<section class="card">
       <div class="card-head"><h3>領土の広い国</h3><span class="field-hint">${world.conquered}／${TOTAL_HEX}マス</span></div>
       <div class="hbars">${ranking.slice(0, 5).map((r) => `
